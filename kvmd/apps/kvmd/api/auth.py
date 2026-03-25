@@ -52,7 +52,7 @@ async def _check_xhdr(auth: AuthManager, _: HttpExposed, req: Request) -> bool:
     if user:
         user = valid_user(user)
         passwd = req.headers.get("X-KVMD-Passwd", "")
-        set_request_auth_info(req, f"{user} (xhdr)")
+        set_request_auth_info(req, f"{user} (xhdr)", user=user)
         if (await auth.authorize(user, valid_passwd(passwd))):
             return True
         raise ForbiddenError()
@@ -64,7 +64,7 @@ async def _check_token(auth: AuthManager, _: HttpExposed, req: Request) -> bool:
     if token:
         user = auth.check(valid_auth_token(token))
         if user:
-            set_request_auth_info(req, f"{user} (token)", token=token)
+            set_request_auth_info(req, f"{user} (token)", token=token, user=user)
             return True
         set_request_auth_info(req, "- (token)")
         raise ForbiddenError()
@@ -79,7 +79,7 @@ async def _check_basic(auth: AuthManager, _: HttpExposed, req: Request) -> bool:
         except Exception:
             raise UnauthorizedError()
         user = valid_user(user)
-        set_request_auth_info(req, f"{user} (basic)")
+        set_request_auth_info(req, f"{user} (basic)", user=user)
         if (await auth.authorize(user, valid_passwd(passwd))):
             return True
         raise ForbiddenError()
@@ -92,7 +92,7 @@ async def _check_usc(auth: AuthManager, exposed: HttpExposed, req: Request) -> b
         if creds is not None:
             user = auth.check_unix_credentials(creds)
             if user:
-                set_request_auth_info(req, f"{user}[{creds.uid}] (unix)")
+                set_request_auth_info(req, f"{user}[{creds.uid}] (unix)", user=user, is_usc=True)
                 return True
         raise UnauthorizedError()
     return False

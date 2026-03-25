@@ -25,6 +25,9 @@ from aiohttp.web import Response
 
 from ....htserver import exposed_http
 from ....htserver import make_json_response
+from ....htserver import ForbiddenError
+from ....htserver import get_request_user
+from ....htserver import get_request_is_usc
 
 from ....validators.basic import valid_bool
 from ....validators.basic import valid_int_f0
@@ -40,12 +43,14 @@ from ....validators.switch import valid_switch_atx_click_delay
 
 from ..switch import Switch
 from ..switch import Colors
+from ..authz import AuthzManager
 
 
 # =====
 class SwitchApi:
-    def __init__(self, switch: Switch) -> None:
+    def __init__(self, switch: Switch, authz: AuthzManager) -> None:
         self.__switch = switch
+        self.__authz = authz
 
     # =====
 
@@ -53,12 +58,12 @@ class SwitchApi:
     async def __state_handler(self, _: Request) -> Response:
         return make_json_response(await self.__switch.get_state())
 
-    @exposed_http("POST", "/switch/set_active_prev")
+    @exposed_http("POST", "/switch/set_active_prev", permission="switch.port.navigate")
     async def __set_active_prev_handler(self, _: Request) -> Response:
         await self.__switch.set_active_prev()
         return make_json_response()
 
-    @exposed_http("POST", "/switch/set_active_next")
+    @exposed_http("POST", "/switch/set_active_next", permission="switch.port.navigate")
     async def __set_active_next_handler(self, _: Request) -> Response:
         await self.__switch.set_active_next()
         return make_json_response()
@@ -66,6 +71,18 @@ class SwitchApi:
     @exposed_http("POST", "/switch/set_active")
     async def __set_active_port_handler(self, req: Request) -> Response:
         port = valid_float_f0(req.query.get("port"))
+        # Fine-grained port-level authz: USC (local tools) bypass, others checked per-port
+        if not get_request_is_usc(req):
+            user = get_request_user(req)
+            if user:
+                if not (await self.__authz.check(
+                    user,
+                    "switch.port.activate",
+                    {"port": int(port)},
+                    source_ip=(req.remote or ""),
+                    user_agent=req.headers.get("User-Agent", ""),
+                )):
+                    raise ForbiddenError()
         await self.__switch.set_active_port(port)
         return make_json_response()
 
@@ -83,7 +100,7 @@ class SwitchApi:
             await self.__switch.set_downlink_beacon(unit, on)
         return make_json_response()
 
-    @exposed_http("POST", "/switch/set_port_params")
+    @exposed_http("POST", "/switch/set_port_params", permission="switch.port.configure")
     async def __set_port_params(self, req: Request) -> Response:
         port = valid_float_f0(req.query.get("port"))
         params = {
@@ -152,7 +169,7 @@ class SwitchApi:
 
     # =====
 
-    @exposed_http("POST", "/switch/atx/power")
+    @exposed_http("POST", "/switch/atx/power", permission="switch.atx")
     async def __power_handler(self, req: Request) -> Response:
         port = valid_float_f0(req.query.get("port"))
         action = valid_atx_power_action(req.query.get("action"))
@@ -164,7 +181,7 @@ class SwitchApi:
         }[action])(port)
         return make_json_response()
 
-    @exposed_http("POST", "/switch/atx/click")
+    @exposed_http("POST", "/switch/atx/click", permission="switch.atx")
     async def __click_handler(self, req: Request) -> Response:
         port = valid_float_f0(req.query.get("port"))
         button = valid_atx_button(req.query.get("button"))

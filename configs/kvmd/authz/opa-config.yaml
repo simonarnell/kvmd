@@ -1,0 +1,30 @@
+# OPA configuration for the kvmd authorization sidecar.
+#
+# The local bundle at /etc/kvmd/authz/bundle/ is always loaded by the
+# systemd service and requires no configuration here. Policy takes effect
+# immediately on service start with no network dependency.
+#
+# To enable fleet-wide remote policy updates, uncomment the sections below
+# and set bundle_url to your bundle server. OPA will poll for changes and
+# merge the remote bundle over the local one, so the local bundle remains
+# the fallback if the remote server is unreachable.
+#
+# OPA listens only on loopback — not exposed to the network.
+
+# services:
+#   bundle_server:
+#     url: https://policy.example.com   # CHANGE THIS
+
+# bundles:
+#   kvmd_remote:
+#     service: bundle_server
+#     resource: /bundles/kvmd.tar.gz
+#     polling:
+#       min_delay_seconds: 60
+#       max_delay_seconds: 120
+
+# decision_logs:
+#   service: bundle_server
+#   reporting:
+#     min_delay_seconds: 5
+#     max_delay_seconds: 30

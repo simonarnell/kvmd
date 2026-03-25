@@ -86,6 +86,7 @@ class HttpExposed:
     auth_required: bool
     allow_usc: bool
     handler: Callable
+    permission: str = dataclasses.field(default="")  # "" = no authz check; non-empty = OPA action string
 
 
 _HTTP_EXPOSED = "_http_exposed"
@@ -93,6 +94,7 @@ _HTTP_METHOD = "_http_method"
 _HTTP_PATH = "_http_path"
 _HTTP_AUTH_REQUIRED = "_http_auth_required"
 _HTTP_ALLOW_USC = "_http_allow_usc"
+_HTTP_PERMISSION = "_http_permission"
 
 
 def exposed_http(
@@ -100,6 +102,7 @@ def exposed_http(
     path: str,
     auth_required: bool=True,
     allow_usc: bool=True,
+    permission: str="",
 ) -> Callable:
 
     def set_attrs(handler: Callable) -> Callable:
@@ -108,6 +111,7 @@ def exposed_http(
         setattr(handler, _HTTP_PATH, path)
         setattr(handler, _HTTP_AUTH_REQUIRED, auth_required)
         setattr(handler, _HTTP_ALLOW_USC, allow_usc)
+        setattr(handler, _HTTP_PERMISSION, permission)
         return handler
     return set_attrs
 
@@ -119,6 +123,7 @@ def _get_exposed_http(obj: object) -> list[HttpExposed]:
             path=getattr(handler, _HTTP_PATH),
             auth_required=getattr(handler, _HTTP_AUTH_REQUIRED),
             allow_usc=getattr(handler, _HTTP_ALLOW_USC),
+            permission=getattr(handler, _HTTP_PERMISSION),
             handler=handler,
         )
         for handler in [getattr(obj, name) for name in dir(obj)]
@@ -269,6 +274,8 @@ def parse_ws_event(msg: str) -> tuple[str, dict]:
 # =====
 _REQUEST_AUTH_INFO = "_kvmd_auth_info"
 _REQUEST_AUTH_TOKEN = "_kvmd_auth_token"
+_REQUEST_AUTH_USER = "_kvmd_auth_user"
+_REQUEST_AUTH_IS_USC = "_kvmd_auth_is_usc"
 
 
 def _format_P(req: BaseRequest, *_, **__) -> str:  # type: ignore  # pylint: disable=invalid-name
@@ -278,13 +285,23 @@ def _format_P(req: BaseRequest, *_, **__) -> str:  # type: ignore  # pylint: dis
 AccessLogger._format_P = staticmethod(_format_P)  # type: ignore  # pylint: disable=protected-access
 
 
-def set_request_auth_info(req: BaseRequest, info: str, token: str="") -> None:
+def set_request_auth_info(req: BaseRequest, info: str, token: str="", user: str="", is_usc: bool=False) -> None:
     setattr(req, _REQUEST_AUTH_INFO, info)
     setattr(req, _REQUEST_AUTH_TOKEN, token)
+    setattr(req, _REQUEST_AUTH_USER, user)
+    setattr(req, _REQUEST_AUTH_IS_USC, is_usc)
 
 
 def _get_request_auth_token(req: BaseRequest) -> str:
     return str(getattr(req, _REQUEST_AUTH_TOKEN, ""))
+
+
+def get_request_user(req: BaseRequest) -> str:
+    return str(getattr(req, _REQUEST_AUTH_USER, ""))
+
+
+def get_request_is_usc(req: BaseRequest) -> bool:
+    return bool(getattr(req, _REQUEST_AUTH_IS_USC, False))
 
 
 @dataclasses.dataclass(frozen=True)

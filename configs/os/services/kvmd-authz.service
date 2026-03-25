@@ -1,0 +1,24 @@
+[Unit]
+Description=PiKVM - OPA authorization sidecar
+Documentation=https://www.openpolicyagent.org/docs/
+After=network.target
+Before=kvmd.service
+
+[Service]
+User=kvmd
+Group=kvmd
+Type=simple
+Restart=always
+RestartSec=3
+
+ExecStart=/usr/bin/opa run \
+    --server \
+    --bundle /etc/kvmd/authz/bundle \
+    --config-file /etc/kvmd/authz/opa-config.yaml \
+    --log-level error \
+    --log-format json
+
+TimeoutStopSec=5
+
+[Install]
+WantedBy=multi-user.target

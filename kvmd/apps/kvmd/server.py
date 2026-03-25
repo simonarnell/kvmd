@@ -44,8 +44,11 @@ from ...htserver import HttpExposed
 from ...htserver import exposed_http
 from ...htserver import exposed_ws
 from ...htserver import make_json_response
+from ...htserver import ForbiddenError
 from ...htserver import WsSession
 from ...htserver import HttpServer
+from ...htserver import get_request_user
+from ...htserver import get_request_is_usc
 
 from ...plugins import BasePlugin
 from ...plugins.hid import BaseHid
@@ -60,6 +63,7 @@ from ...validators.kvm import valid_stream_h264_bitrate
 from ...validators.kvm import valid_stream_h264_gop
 
 from .auth import AuthManager
+from .authz import AuthzManager
 from .info import InfoManager
 from .logreader import LogReader
 from .ugpio import UserGpio
@@ -147,6 +151,7 @@ class KvmdServer(HttpServer):  # pylint: disable=too-many-arguments,too-many-ins
     def __init__(  # pylint: disable=too-many-arguments,too-many-locals
         self,
         auth: AuthManager,
+        authz: AuthzManager,
         im: InfoManager,
         log_reader: (LogReader | None),
         ugpio: UserGpio,
@@ -169,6 +174,8 @@ class KvmdServer(HttpServer):  # pylint: disable=too-many-arguments,too-many-ins
         super().__init__()
 
         self.__auth = auth
+        self.__authz = authz
+        self.__switch = switch
         self.__hid = hid
         self.__streamer = streamer
         self.__snapshoter = snapshoter  # Not a component: No state or cleanup
@@ -186,7 +193,7 @@ class KvmdServer(HttpServer):  # pylint: disable=too-many-arguments,too-many-ins
             AtxApi(atx),
             MsdApi(msd),
             StreamerApi(streamer, ocr),
-            SwitchApi(switch),
+            SwitchApi(switch, authz),
             ExportApi(im, atx, ugpio),
             RedfishRootApi(),
             RedfishAtxApi(im, atx, switch),
@@ -194,6 +201,7 @@ class KvmdServer(HttpServer):  # pylint: disable=too-many-arguments,too-many-ins
         ]
         self.__subsystems = [
             _Subsystem.make(auth,     "Auth"),
+            _Subsystem.make(authz,    "Authz"),
             _Subsystem.make(ugpio,    "GPIO",     self.__EV_GPIO_STATE),
             _Subsystem.make(hid,      "HID",      self.__EV_HID_STATE),
             _Subsystem.make(atx,      "ATX",      self.__EV_ATX_STATE),
@@ -274,6 +282,21 @@ class KvmdServer(HttpServer):  # pylint: disable=too-many-arguments,too-many-ins
 
     async def _check_request_auth(self, exposed: HttpExposed, req: Request) -> None:
         await check_request_auth(self.__auth, exposed, req)
+        # Coarse-grained authz: skip for USC (local system tools already gated by UID/group).
+        # active_port is included in every resource so OPA can gate per-port actions
+        # (e.g. HID allowed on port 1 but stream-only on port 0).
+        if exposed.permission and not get_request_is_usc(req):
+            user = get_request_user(req)
+            if user:
+                active_port = self.__switch.get_active_port()  # -1 = no port active
+                if not (await self.__authz.check(
+                    user,
+                    exposed.permission,
+                    {"active_port": (active_port if active_port >= 0 else None)},
+                    source_ip=(req.remote or ""),
+                    user_agent=req.headers.get("User-Agent", ""),
+                )):
+                    raise ForbiddenError()
 
     async def _before_app(self) -> None:
         for sub in self.__subsystems:

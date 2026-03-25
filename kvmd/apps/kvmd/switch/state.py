@@ -281,6 +281,9 @@ class StateCache:  # pylint: disable=too-many-instance-attributes,too-many-publi
             del self.__units[units:]
             self.__bump_state(self.__FULL)
 
+    def get_active_port(self) -> int:  # noqa vulture-ignore
+        return self.__active_port  # -1 when no port is active
+
     def update_active_port(self, port: int) -> None:
         changed = (self.__active_port != port)
         self.__active_port = port

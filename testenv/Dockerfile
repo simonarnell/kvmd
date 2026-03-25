@@ -1,7 +1,8 @@
 FROM archlinux/archlinux:base
 
 RUN mkdir -p /etc/pacman.d/hooks \
-	&& ln -s /dev/null /etc/pacman.d/hooks/30-systemd-tmpfiles.hook
+	&& ln -s /dev/null /etc/pacman.d/hooks/30-systemd-tmpfiles.hook \
+	&& echo "DisableSandbox" >> /etc/pacman.conf
 
 RUN echo 'Server = https://fastly.mirror.pkgbuild.com/$repo/os/$arch' > /etc/pacman.d/mirrorlist \
 	&& pacman-key --init \

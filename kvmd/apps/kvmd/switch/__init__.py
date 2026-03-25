@@ -146,6 +146,9 @@ class Switch:  # pylint: disable=too-many-public-methods
 
     # =====
 
+    def get_active_port(self) -> int:
+        return self.__cache.get_active_port()  # -1 when no port is active
+
     async def set_active_prev(self) -> None:
         self.__chain.set_active_prev()
 

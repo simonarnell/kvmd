@@ -27,6 +27,7 @@ from ...plugins.msd import get_msd_class
 from .. import init
 
 from .auth import AuthManager
+from .authz import AuthzManager
 from .info import InfoManager
 from .logreader import LogReader
 from .ugpio import UserGpio
@@ -64,6 +65,13 @@ def main() -> None:
     )
 
     KvmdServer(
+        authz=AuthzManager(
+            enabled=config.authz.enabled,
+            opa_url=config.authz.opa_url,
+            opa_timeout=config.authz.opa_timeout,
+            device_id=config.authz.device_id,
+            fail_open=config.authz.fail_open,
+        ),
         auth=AuthManager(
             enabled=config.auth.enabled,
             expire=config.auth.expire,

@@ -1,0 +1,23 @@
+{
+    "port_permissions": {
+        "wintel-admin": {
+            "0": ["streamer", "hid", "switch.atx", "switch.port.activate", "switch.port.navigate"],
+            "1": ["streamer", "hid", "switch.atx", "switch.port.activate", "switch.port.navigate"]
+        },
+        "lintel-admin": {
+            "2": ["streamer", "hid", "switch.port.activate", "switch.port.navigate"],
+            "3": ["streamer", "hid", "switch.port.activate", "switch.port.navigate"]
+        },
+        "operator": {
+            "0": ["streamer"],
+            "1": ["streamer", "hid", "switch.atx", "switch.port.activate", "switch.port.navigate"],
+            "2": ["streamer", "hid", "switch.port.activate", "switch.port.navigate"]
+        },
+        "viewer": {
+            "0": ["streamer"],
+            "1": ["streamer"],
+            "2": ["streamer"],
+            "3": ["streamer"]
+        }
+    }
+}

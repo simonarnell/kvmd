@@ -322,6 +322,14 @@ def make_config_scheme() -> dict:
                 },
             },
 
+            "authz": {
+                "enabled":     Option(False,  type=valid_bool),
+                "opa_url":     Option("http://localhost:8181/v1/data/kvmd/authz/allow", type=valid_stripped_string),
+                "opa_timeout": Option(0.5,    type=valid_float_f01),
+                "device_id":   Option("",     type=valid_stripped_string),
+                "fail_open":   Option(True,   type=valid_bool),
+            },
+
             "info": {  # Accessed via global config, see kvmd/info for details
                 "meta":   Option("/etc/kvmd/meta.yaml",    type=valid_abs_path),
                 "extras": Option("/usr/share/kvmd/extras", type=valid_abs_path),
