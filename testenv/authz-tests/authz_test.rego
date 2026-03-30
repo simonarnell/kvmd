@@ -1,7 +1,6 @@
-# OPA policy tests for kvmd authorization.
-# Run with: opa test policy/ data/ -v
-# (from the configs/kvmd/authz/ directory with policy/ and data/ subdirs,
-#  or point opa test at the individual files)
+# OPA policy unit tests for kvmd authorization.
+# Run with: make test  (from configs/kvmd/authz/)
+# Or directly: opa test configs/kvmd/authz/bundle/policy/authz.rego testenv/authz-tests/authz_test.rego --verbose
 
 package kvmd.authz_test
 

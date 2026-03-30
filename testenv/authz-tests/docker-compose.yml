@@ -23,8 +23,6 @@ services:
       - --server
       - --bundle
       - /bundle
-      - --ignore
-      - "*_test.rego"
       - --log-level
       - error
       - --addr

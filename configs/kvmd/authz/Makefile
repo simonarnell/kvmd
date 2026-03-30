@@ -13,11 +13,11 @@ bundle:
 
 # Run Rego policy unit tests.
 test:
-	opa test $(BUNDLE_DIR)/policy/ --verbose
+	opa test $(BUNDLE_DIR)/policy/authz.rego ../../../testenv/authz-tests/authz_test.rego --verbose
 
 # Evaluate a decision locally against the bundled data without a running OPA
 # server. Useful for checking what a specific user/device/action resolves to.
-# Usage: make eval USER=bob DEVICE=pikvm-rack-a ACTION=hid.write PORT=1
+# Usage: make eval USER=bob DEVICE=switch-example ACTION=hid.write PORT=1
 eval:
 	opa eval \
 		--bundle $(BUNDLE_DIR) \
