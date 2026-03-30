@@ -1,0 +1,4 @@
+{
+    "_comment": "Test fixture. Standalone device (no switch): standalone flag enables role-based access with no port selection required.",
+    "standalone": true
+}

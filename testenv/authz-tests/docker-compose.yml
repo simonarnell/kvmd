@@ -1,0 +1,45 @@
+services:
+
+  # ── OPA policy engine ──────────────────────────────────────────────────────
+  # Runs with the real authz bundle from the repo.  No custom image needed.
+  opa:
+    image: openpolicyagent/opa:latest-static
+    volumes:
+      # Mount the real policy from the distributed bundle, but use test-specific
+      # data from testenv/authz-tests/data/ rather than the exemplar data in
+      # configs/kvmd/authz/bundle/data/.
+      #
+      # OPA maps each data.json by its path relative to the bundle root:
+      #   /bundle/data.json                      → data  (users, roles)
+      #   /bundle/devices/pikvm-rack-a/data.json → data.devices["pikvm-rack-a"]
+      # The data/ subdirectory name must NOT appear in the mount path or OPA
+      # would place everything under data.data instead of data.
+      - ../../configs/kvmd/authz/bundle/policy:/bundle/policy:ro
+      - ./data/data.json:/bundle/data.json:ro
+      - ./data/devices:/bundle/devices:ro
+      - ./bundle-test.manifest:/bundle/.manifest:ro
+    command:
+      - run
+      - --server
+      - --bundle
+      - /bundle
+      - --ignore
+      - "*_test.rego"
+      - --log-level
+      - error
+      - --addr
+      - :8181
+
+  # ── Test driver ────────────────────────────────────────────────────────────
+  # Waits for OPA to accept requests, then runs every tests/*.sh in order.
+  # Exit code = number of failed test scripts.
+  tests:
+    build:
+      context: .
+    volumes:
+      - ../../:/src:ro
+    environment:
+      OPA_BASE: http://opa:8181
+    depends_on:
+      - opa
+    command: /src/testenv/authz-tests/run_tests.sh

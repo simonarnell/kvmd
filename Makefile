@@ -50,6 +50,7 @@ all:
 	@ echo "    make bump             # Bump minor version"
 	@ echo "    make bump V=major     # Bump major version"
 	@ echo "    make release          # Publish the new release (include bump minor)"
+	@ echo "    make authz-test        # Run Docker-based authz policy integration tests"
 	@ echo "    make clean            # Remove garbage"
 	@ echo "    make clean-all        # Remove garbage and test results"
 	@ echo
@@ -79,6 +80,13 @@ testenv:
 			&& mv /etc/kvmd/nginx/ssl /src/testenv/.ssl/nginx \
 			&& mv /etc/kvmd/vnc/ssl /src/testenv/.ssl/vnc \
 		"
+
+
+authz-test:
+	$(DOCKER) compose \
+			$(if $(call -optbool,$(NC)),--no-cache,) \
+			-f testenv/authz-tests/docker-compose.yml \
+		up --build --abort-on-container-exit --exit-code-from tests
 
 
 tox: testenv

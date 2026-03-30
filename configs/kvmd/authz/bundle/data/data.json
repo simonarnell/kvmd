@@ -1,20 +1,14 @@
 {
     "_comment": [
-        "Global users and roles. Works for both switch and standalone deployments.",
-        "Per-device config lives in data/devices/<device-id>/data.json:",
-        "  Switch device:     add port_permissions to restrict roles per port.",
-        "  Standalone device: add { \"standalone\": true } — no port_permissions needed.",
-        "See policy/authz.rego for the full policy logic and deployment mode docs."
+        "Global users and roles. Edit this file to match your organisation.",
+        "Per-device config lives in data/devices/<device-id>/data.json.",
+        "See policy/authz.rego for full documentation of the policy logic."
     ],
     "users": {
-        "alice":   { "roles": ["superuser"] },
-        "bob":     { "roles": ["operator"] },
-        "carol":   { "roles": ["viewer"] },
-        "wbob":    { "roles": ["wintel-admin"] },
-        "lcarol":  { "roles": ["lintel-admin"] }
+        "admin": { "roles": ["admin"] }
     },
     "roles": {
-        "superuser": {
+        "admin": {
             "permissions": ["*"]
         },
         "operator": {
@@ -28,23 +22,6 @@
         },
         "viewer": {
             "permissions": [
-                "streamer"
-            ]
-        },
-        "wintel-admin": {
-            "permissions": [
-                "switch.port.activate",
-                "switch.port.navigate",
-                "switch.atx",
-                "hid",
-                "streamer"
-            ]
-        },
-        "lintel-admin": {
-            "permissions": [
-                "switch.port.activate",
-                "switch.port.navigate",
-                "hid",
                 "streamer"
             ]
         }

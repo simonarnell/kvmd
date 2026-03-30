@@ -1,0 +1,3 @@
+{
+    "_comment": "Test fixture. No port_permissions: every role's global permissions apply to all ports."
+}

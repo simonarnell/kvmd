@@ -1,4 +1,5 @@
 {
+    "_comment": "Test fixture. Port partitioning: operator on 0-2, wintel-admin on 0-1, lintel-admin on 2-3, viewer on 0-3 (stream only).",
     "port_permissions": {
         "wintel-admin": {
             "0": ["streamer", "hid", "switch.atx", "switch.port.activate", "switch.port.navigate"],

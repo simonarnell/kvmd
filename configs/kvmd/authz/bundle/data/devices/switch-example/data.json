@@ -1,0 +1,19 @@
+{
+    "_comment": [
+        "Example switch device with per-port role restrictions.",
+        "port_permissions acts as an allowlist: once a role is listed here,",
+        "it can only access the ports explicitly named, with the actions listed.",
+        "Roles not listed here fall back to their global permissions on all ports.",
+        "Remove or omit port_permissions entirely to give all roles full access."
+    ],
+    "port_permissions": {
+        "operator": {
+            "0": ["streamer", "hid", "switch.atx", "switch.port.activate", "switch.port.navigate"],
+            "1": ["streamer", "hid", "switch.atx", "switch.port.activate", "switch.port.navigate"]
+        },
+        "viewer": {
+            "0": ["streamer"],
+            "1": ["streamer"]
+        }
+    }
+}

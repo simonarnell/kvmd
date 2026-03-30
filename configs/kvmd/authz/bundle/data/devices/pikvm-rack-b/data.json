@@ -1,7 +1,0 @@
-{
-    "port_permissions": {
-        "operator": {
-            "0": ["streamer", "hid", "switch.atx", "switch.port.activate", "switch.port.navigate"]
-        }
-    }
-}

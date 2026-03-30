@@ -1,0 +1,46 @@
+{
+    "_comment": "Test fixture — not distributed to devices. See configs/kvmd/authz/bundle/data/ for exemplar data.",
+    "users": {
+        "alice":   { "roles": ["superuser"] },
+        "bob":     { "roles": ["operator"] },
+        "carol":   { "roles": ["viewer"] },
+        "wbob":    { "roles": ["wintel-admin"] },
+        "lcarol":  { "roles": ["lintel-admin"] }
+    },
+    "roles": {
+        "superuser": {
+            "permissions": ["*"]
+        },
+        "operator": {
+            "permissions": [
+                "switch.port.activate",
+                "switch.port.navigate",
+                "switch.atx",
+                "hid",
+                "streamer"
+            ]
+        },
+        "viewer": {
+            "permissions": [
+                "streamer"
+            ]
+        },
+        "wintel-admin": {
+            "permissions": [
+                "switch.port.activate",
+                "switch.port.navigate",
+                "switch.atx",
+                "hid",
+                "streamer"
+            ]
+        },
+        "lintel-admin": {
+            "permissions": [
+                "switch.port.activate",
+                "switch.port.navigate",
+                "hid",
+                "streamer"
+            ]
+        }
+    }
+}

@@ -10,8 +10,8 @@
 #   data/data.json                         <- global users + roles
 #   data/devices/<device-id>/data.json     <- per-device config
 #
-#   data/data.json            →  data.users, data.roles
-#   data/devices/pikvm-rack-a/data.json  →  data.devices["pikvm-rack-a"]
+#   data/data.json                        →  data.users, data.roles
+#   data/devices/switch-example/data.json →  data.devices["switch-example"]
 #
 # ---------------------------------------------------------------------------
 # Two deployment modes
@@ -25,9 +25,10 @@
 #   before a target is chosen.
 #
 #   Per-device config: optionally add port_permissions to restrict which
-#   roles can use which ports.
+#   roles can use which ports.  port_permissions acts as an allowlist: once
+#   a role is listed, it may only access the ports explicitly named.
 #
-#     data/devices/pikvm-rack-a/data.json:
+#     data/devices/switch-example/data.json:
 #     { "port_permissions": { "operator": { "0": ["streamer"], ... } } }
 #
 # STANDALONE MODE
@@ -68,6 +69,7 @@ allow if {
 
 allow if {
     input.action == "switch.port.activate"
+    not data.devices[input.device_id].standalone
     some role in data.users[input.user].roles
     _role_has_port_permission(role, input.resource.port, "switch.port.activate")
 }
@@ -134,14 +136,16 @@ allow if {
 # Check whether a role permits an action on a specific port.
 #
 # Two tiers:
-#   1. Device-level port_permissions[role][port] overrides the role's global
-#      permissions for that port on that device.
-#      If a per-port override exists, only those listed permissions apply.
-#   2. If no per-port override exists for this role+port, fall back to the
-#      role's global permissions (from data.roles).
+#   1. If port_permissions[role] is configured for this device, the role may
+#      ONLY access the ports explicitly listed there, with the permissions
+#      listed for each port.  Unlisted ports are denied entirely.
+#   2. If port_permissions[role] is NOT configured for this device at all,
+#      fall back to the role's global permissions (from data.roles) for any
+#      port.
 #
-# This means: adding port_permissions for a role RESTRICTS it per-port.
-# Roles with no port_permissions entry retain their global permissions on all ports.
+# This means port_permissions acts as an allowlist of ports for a role:
+# once you add any port_permissions entry for a role, that role loses access
+# to all ports not explicitly listed.
 
 _role_has_port_permission(role, port, action) if {
     port_str := sprintf("%d", [port])
@@ -150,8 +154,7 @@ _role_has_port_permission(role, port, action) if {
 }
 
 _role_has_port_permission(role, port, action) if {
-    port_str := sprintf("%d", [port])
-    not data.devices[input.device_id].port_permissions[role][port_str]
+    not data.devices[input.device_id].port_permissions[role]
     _role_allows(role, action)
 }
 
