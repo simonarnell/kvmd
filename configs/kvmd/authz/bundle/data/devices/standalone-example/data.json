@@ -1,0 +1,9 @@
+{
+    "_comment": [
+        "Standalone PiKVM (no switch attached).",
+        "The standalone flag tells the policy to gate actions on global role",
+        "permissions when active_port is null, rather than denying them.",
+        "No port_permissions are needed — there are no ports to restrict."
+    ],
+    "standalone": true
+}

@@ -8,10 +8,40 @@
 #
 #   policy/authz.rego                      <- this file
 #   data/data.json                         <- global users + roles
-#   data/devices/<device-id>/data.json     <- per-device port ACLs
+#   data/devices/<device-id>/data.json     <- per-device config
 #
 #   data/data.json            →  data.users, data.roles
 #   data/devices/pikvm-rack-a/data.json  →  data.devices["pikvm-rack-a"]
+#
+# ---------------------------------------------------------------------------
+# Two deployment modes
+# ---------------------------------------------------------------------------
+#
+# SWITCH MODE (default)
+#   The PiKVM is connected to a KVM switch. kvmd injects the currently
+#   selected port number as active_port (an integer). When no port has been
+#   selected yet, active_port is null, and all non-navigate actions are
+#   denied until the user activates a port — this prevents accidental access
+#   before a target is chosen.
+#
+#   Per-device config: optionally add port_permissions to restrict which
+#   roles can use which ports.
+#
+#     data/devices/pikvm-rack-a/data.json:
+#     { "port_permissions": { "operator": { "0": ["streamer"], ... } } }
+#
+# STANDALONE MODE
+#   The PiKVM operates without a switch. There are no ports, so active_port
+#   is always null. To allow non-superuser roles to use the device, add
+#   "standalone": true to the device's data.json. Actions are then gated
+#   on the user's global role permissions (per-port ACLs do not apply).
+#
+#     data/devices/my-standalone-pikvm/data.json:
+#     { "standalone": true }
+#
+# Without the standalone flag, a device with active_port == null will deny
+# all non-navigate actions for non-superuser roles. This is intentional for
+# switch devices where a port must be selected first.
 
 package kvmd.authz
 
@@ -63,6 +93,10 @@ allow if {
 # All other actions (hid, streamer, switch.atx, switch.port.configure, etc.)
 # are gated on the currently active port. kvmd injects active_port into
 # input.resource automatically for every permission-annotated endpoint.
+#
+# active_port == null means no port has been selected yet (switch mode) or
+# the device has no switch (standalone mode). The standalone rule below
+# handles the latter case; this rule only fires when active_port is set.
 # =====
 
 allow if {
@@ -71,6 +105,26 @@ allow if {
     input.resource.active_port != null
     some role in data.users[input.user].roles
     _role_has_port_permission(role, input.resource.active_port, input.action)
+}
+
+# =====
+# Standalone PiKVM (no switch): active_port is always null because there is
+# no switch port to select. Mark the device standalone: true in its
+# data/devices/<device-id>/data.json to enable role-based access without
+# per-port ACLs.
+#
+# Without this flag, active_port == null causes all non-navigate actions to
+# be denied for non-superuser roles — correct for a switch device where no
+# port has been selected yet, but a permanent lockout on standalone devices.
+# =====
+
+allow if {
+    input.action != "switch.port.activate"
+    input.action != "switch.port.navigate"
+    input.resource.active_port == null
+    data.devices[input.device_id].standalone == true
+    some role in data.users[input.user].roles
+    _role_allows(role, input.action)
 }
 
 # =====

@@ -1,4 +1,11 @@
 {
+    "_comment": [
+        "Global users and roles. Works for both switch and standalone deployments.",
+        "Per-device config lives in data/devices/<device-id>/data.json:",
+        "  Switch device:     add port_permissions to restrict roles per port.",
+        "  Standalone device: add { \"standalone\": true } — no port_permissions needed.",
+        "See policy/authz.rego for the full policy logic and deployment mode docs."
+    ],
     "users": {
         "alice":   { "roles": ["superuser"] },
         "bob":     { "roles": ["operator"] },

@@ -217,10 +217,48 @@ test_unknown_user_denied if {
 }
 
 # =====
-# No active port → non-navigate actions denied (can't check per-port ACL)
+# Switch mode: no active port → non-navigate actions denied (no port selected yet)
 # =====
 
 test_hid_denied_with_no_active_port if {
     not authz.allow with input as {"user": "bob", "device_id": "rack-a", "action": "hid.write", "resource": {"active_port": null}}
                     with data as _data
+}
+
+# =====
+# Standalone mode: active_port is always null (no switch); standalone: true
+# enables role-based access using global role permissions.
+# =====
+
+_standalone_data := object.union(_users, {"devices": {
+    "standalone-pikvm": {"standalone": true},
+    "switch-pikvm":     {},
+}})
+
+test_standalone_operator_can_use_hid if {
+    authz.allow with input as {"user": "bob", "device_id": "standalone-pikvm", "action": "hid.write", "resource": {"active_port": null}}
+                with data as _standalone_data
+}
+
+test_standalone_viewer_can_stream if {
+    authz.allow with input as {"user": "carol", "device_id": "standalone-pikvm", "action": "streamer", "resource": {"active_port": null}}
+                with data as _standalone_data
+}
+
+test_standalone_viewer_cannot_use_hid if {
+    # viewer role has no hid permission — role still gates access
+    not authz.allow with input as {"user": "carol", "device_id": "standalone-pikvm", "action": "hid.write", "resource": {"active_port": null}}
+                    with data as _standalone_data
+}
+
+test_standalone_activate_denied if {
+    # switch.port.activate makes no sense on a standalone device
+    not authz.allow with input as {"user": "bob", "device_id": "standalone-pikvm", "action": "switch.port.activate", "resource": {"port": 0}}
+                    with data as _standalone_data
+}
+
+test_switch_device_without_standalone_flag_still_denies if {
+    # regression: non-standalone device + null active_port must still deny
+    not authz.allow with input as {"user": "bob", "device_id": "switch-pikvm", "action": "hid.write", "resource": {"active_port": null}}
+                    with data as _standalone_data
 }
