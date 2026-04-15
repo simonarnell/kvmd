@@ -12,6 +12,8 @@ bundle:
 	@echo "Built $(BUNDLE_OUT)"
 
 # Run Rego policy unit tests.
+# Test data is inline in authz_test.rego (mock via 'with data as ...').
+# The bundle data files are NOT loaded here — only the policy is needed.
 test:
 	opa test $(BUNDLE_DIR)/policy/authz.rego ../../../testenv/authz-tests/authz_test.rego --verbose
 

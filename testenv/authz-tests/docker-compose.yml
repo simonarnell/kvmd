@@ -7,13 +7,11 @@ services:
     volumes:
       # Mount the real policy from the distributed bundle, but use test-specific
       # data from testenv/authz-tests/data/ rather than the exemplar data in
-      # configs/kvmd/authz/bundle/data/.
+      # configs/kvmd/authz/bundle/.
       #
       # OPA maps each data.json by its path relative to the bundle root:
       #   /bundle/data.json                      → data  (users, roles)
       #   /bundle/devices/pikvm-rack-a/data.json → data.devices["pikvm-rack-a"]
-      # The data/ subdirectory name must NOT appear in the mount path or OPA
-      # would place everything under data.data instead of data.
       - ../../configs/kvmd/authz/bundle/policy:/bundle/policy:ro
       - ./data/data.json:/bundle/data.json:ro
       - ./data/devices:/bundle/devices:ro
