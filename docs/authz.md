@@ -46,7 +46,7 @@ The **generic mechanism**: any `@exposed_http(..., permission="some.action")` en
 
 **The video stream is different** because it's served by `ustreamer` directly, proxied by nginx (`configs/nginx/kvmd.ctx-server.conf`) — kvmd's Python application, and therefore the generic mechanism above, never sees that traffic at all. nginx's `auth_request` directive calls `GET /auth/check_streamer` before allowing the proxy through, and that endpoint makes the same OPA call the generic mechanism would.
 
-**USC (local UNIX-socket-authenticated tools)** bypass authz checks entirely, at every one of the points above — consistent with kvmd's existing UNIX-socket trust model (a local, already-privileged process identified by kernel-verified UID/GID has no meaningful "role" to check).
+**USC (Unix Socket Credentials — kvmd's term for local tools authenticated via the kernel-verified PID/UID/GID on a UNIX domain socket connection, rather than a password or token)** bypass authz checks entirely, at every one of the points above — consistent with kvmd's existing UNIX-socket trust model (a local, already-privileged process identified this way has no meaningful "role" to check).
 
 ## Configuration
 
