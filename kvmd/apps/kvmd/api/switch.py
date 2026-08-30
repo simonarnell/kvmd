@@ -89,7 +89,7 @@ class SwitchApi:
         await self.__switch.set_active_port(port)
         return make_json_response()
 
-    @exposed_http("POST", "/switch/set_beacon")
+    @exposed_http("POST", "/switch/set_beacon", permission="switch.port.configure")
     async def __set_beacon_handler(self, req: Request) -> Response:
         on = valid_bool(req.query.get("state"))
         if "port" in req.query:
@@ -121,7 +121,7 @@ class SwitchApi:
         await self.__switch.set_port_params(port, **params)  # type: ignore
         return make_json_response()
 
-    @exposed_http("POST", "/switch/set_colors")
+    @exposed_http("POST", "/switch/set_colors", permission="switch.device.configure")
     async def __set_colors(self, req: Request) -> Response:
         params = {
             param: valid_switch_color(req.query.get(param), allow_default=True)
@@ -133,7 +133,7 @@ class SwitchApi:
 
     # =====
 
-    @exposed_http("POST", "/switch/reset")
+    @exposed_http("POST", "/switch/reset", permission="switch.device.reset")
     async def __reset(self, req: Request) -> Response:
         unit = valid_int_f0(req.query.get("unit"))
         bootloader = valid_bool(req.query.get("bootloader", False))
@@ -142,14 +142,14 @@ class SwitchApi:
 
     # =====
 
-    @exposed_http("POST", "/switch/edids/create")
+    @exposed_http("POST", "/switch/edids/create", permission="switch.device.configure")
     async def __create_edid(self, req: Request) -> Response:
         name = valid_stripped_string_not_empty(req.query.get("name"))
         data_hex = valid_switch_edid_data(req.query.get("data"))
         edid_id = await self.__switch.create_edid(name, data_hex)
         return make_json_response({"id": edid_id})
 
-    @exposed_http("POST", "/switch/edids/change")
+    @exposed_http("POST", "/switch/edids/change", permission="switch.device.configure")
     async def __change_edid(self, req: Request) -> Response:
         edid_id = valid_switch_edid_id(req.query.get("id"), allow_default=False)
         params = {
@@ -164,7 +164,7 @@ class SwitchApi:
             await self.__switch.change_edid(edid_id, **params)
         return make_json_response()
 
-    @exposed_http("POST", "/switch/edids/remove")
+    @exposed_http("POST", "/switch/edids/remove", permission="switch.device.configure")
     async def __remove_edid(self, req: Request) -> Response:
         edid_id = valid_switch_edid_id(req.query.get("id"), allow_default=False)
         await self.__switch.remove_edid(edid_id)

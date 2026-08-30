@@ -25,12 +25,16 @@
                 "switch.port.navigate",
                 "switch.atx",
                 "hid",
-                "streamer"
+                "streamer.view",
+                "snapshot",
+                "msd.add",
+                "msd.mount",
+                "gpio"
             ]
         },
         "viewer": {
             "permissions": [
-                "streamer"
+                "streamer.view"
             ]
         }
     }

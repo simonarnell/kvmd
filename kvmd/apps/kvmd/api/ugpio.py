@@ -44,7 +44,7 @@ class UserGpioApi:
     async def __state_handler(self, _: Request) -> Response:
         return make_json_response(await self.__ugpio.get_state())
 
-    @exposed_http("POST", "/gpio/switch")
+    @exposed_http("POST", "/gpio/switch", permission="gpio")
     async def __switch_handler(self, req: Request) -> Response:
         channel = valid_ugpio_channel(req.query.get("channel"))
         state = valid_bool(req.query.get("state"))
@@ -52,7 +52,7 @@ class UserGpioApi:
         await self.__ugpio.switch(channel, state, wait)
         return make_json_response()
 
-    @exposed_http("POST", "/gpio/pulse")
+    @exposed_http("POST", "/gpio/pulse", permission="gpio")
     async def __pulse_handler(self, req: Request) -> Response:
         channel = valid_ugpio_channel(req.query.get("channel"))
         delay = valid_float_f0(req.query.get("delay", 0.0))

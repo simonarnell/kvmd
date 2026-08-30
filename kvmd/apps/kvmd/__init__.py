@@ -106,6 +106,9 @@ def main() -> None:
         msd=get_msd_class(config.msd.type)(config.msd, ia.make_nbd_client("KVMD")),
         streamer=streamer,
 
+        janus_ws_unix_path=config.janus_proxy.unix_path,
+        janus_ws_timeout=config.janus_proxy.timeout,
+
         snapshoter=Snapshoter(
             hid=hid,
             streamer=streamer,

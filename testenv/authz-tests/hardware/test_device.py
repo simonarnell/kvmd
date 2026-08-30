@@ -170,7 +170,7 @@ class TestSuperuserAllowed:
 
 
 # =====
-# 03_viewer_restricted.sh: viewer (permissions: ["streamer"]) is denied on
+# 03_viewer_restricted.sh: viewer (permissions: ["streamer.view"]) is denied on
 # every permission-gated endpoint except navigation with no active port
 # (unconditionally allowed by the policy — no role check).
 # =====

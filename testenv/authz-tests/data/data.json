@@ -17,12 +17,12 @@
                 "switch.port.navigate",
                 "switch.atx",
                 "hid",
-                "streamer"
+                "streamer.view"
             ]
         },
         "viewer": {
             "permissions": [
-                "streamer"
+                "streamer.view"
             ]
         },
         "wintel-admin": {
@@ -31,7 +31,7 @@
                 "switch.port.navigate",
                 "switch.atx",
                 "hid",
-                "streamer"
+                "streamer.view"
             ]
         },
         "lintel-admin": {
@@ -39,7 +39,7 @@
                 "switch.port.activate",
                 "switch.port.navigate",
                 "hid",
-                "streamer"
+                "streamer.view"
             ]
         }
     },

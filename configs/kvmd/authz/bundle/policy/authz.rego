@@ -37,7 +37,7 @@
 #   a role is listed, it may only access the ports explicitly named.
 #
 #     data/devices/switch-example/data.json:
-#     { "port_permissions": { "operator": { "0": ["streamer"], ... } } }
+#     { "port_permissions": { "operator": { "0": ["streamer.view"], ... } } }
 #
 # STANDALONE MODE
 #   The PiKVM operates without a switch. There are no ports, so active_port
@@ -100,7 +100,8 @@ allow if {
 }
 
 # =====
-# All other actions (hid, streamer, switch.atx, switch.port.configure, etc.)
+# All other actions (hid, streamer.view, snapshot, webcam, switch.atx,
+# switch.port.configure, msd.add/mount/delete/read, etc.)
 # are gated on the currently active port. kvmd injects active_port into
 # input.resource automatically for every permission-annotated endpoint.
 #
@@ -133,6 +134,24 @@ allow if {
     input.action != "switch.port.navigate"
     input.resource.active_port == null
     data.devices[input.device_id].standalone == true
+    some role in _user_roles
+    _role_allows(role, input.action)
+}
+
+# =====
+# Device-global actions: unlike hid/streamer.view/switch.atx/msd.add|mount|
+# delete|read (which follow whichever port is currently active, same as the
+# KVM switch's physical USB routing), these have no relationship to port
+# selection at all -- GPIO pins, the log/metrics streams, and resetting a
+# whole subsystem (switch controller, MSD) belong to the PiKVM board itself,
+# not to any one port. Gating them on active_port would wrongly deny them on
+# a switch-mode device before any port is selected, even though the action
+# has nothing to do with a port. Still gated on the role actually holding
+# the permission -- just not on active_port/standalone state.
+# =====
+
+allow if {
+    input.action in {"gpio", "log", "export", "switch.device.configure", "switch.device.reset", "msd.reset"}
     some role in _user_roles
     _role_allows(role, input.action)
 }

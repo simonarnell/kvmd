@@ -122,7 +122,7 @@ class HidApi:
     async def __state_handler(self, _: Request) -> Response:
         return make_json_response(await self.__hid.get_state())
 
-    @exposed_http("POST", "/hid/set_params")
+    @exposed_http("POST", "/hid/set_params", permission="hid")
     async def __set_params_handler(self, req: Request) -> Response:
         params = {
             key: validator(req.query.get(key))
@@ -136,12 +136,12 @@ class HidApi:
         self.__hid.set_params(**params)  # type: ignore
         return make_json_response()
 
-    @exposed_http("POST", "/hid/set_connected")
+    @exposed_http("POST", "/hid/set_connected", permission="hid")
     async def __set_connected_handler(self, req: Request) -> Response:
         self.__hid.set_connected(valid_bool(req.query.get("connected")))
         return make_json_response()
 
-    @exposed_http("POST", "/hid/reset")
+    @exposed_http("POST", "/hid/reset", permission="hid")
     async def __reset_handler(self, _: Request) -> Response:
         await self.__hid.reset()
         return make_json_response()

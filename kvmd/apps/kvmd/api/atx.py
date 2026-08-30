@@ -44,7 +44,7 @@ class AtxApi:
     async def __state_handler(self, _: Request) -> Response:
         return make_json_response(await self.__atx.get_state())
 
-    @exposed_http("POST", "/atx/power")
+    @exposed_http("POST", "/atx/power", permission="switch.atx")
     async def __power_handler(self, req: Request) -> Response:
         action = valid_atx_power_action(req.query.get("action"))
         wait = valid_bool(req.query.get("wait", False))
@@ -56,7 +56,7 @@ class AtxApi:
         }[action])(wait)
         return make_json_response()
 
-    @exposed_http("POST", "/atx/click")
+    @exposed_http("POST", "/atx/click", permission="switch.atx")
     async def __click_handler(self, req: Request) -> Response:
         button = valid_atx_button(req.query.get("button"))
         wait = valid_bool(req.query.get("wait", False))

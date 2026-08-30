@@ -50,7 +50,7 @@ class ExportApi:
 
     # =====
 
-    @exposed_http("GET", "/export/prometheus/metrics")
+    @exposed_http("GET", "/export/prometheus/metrics", permission="export")
     async def __prometheus_metrics_handler(self, _: Request) -> Response:
         return Response(text=(await self.__get_prometheus_metrics()))
 

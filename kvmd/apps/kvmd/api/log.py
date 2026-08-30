@@ -46,7 +46,7 @@ class LogApi:
 
     # =====
 
-    @exposed_http("GET", "/log")
+    @exposed_http("GET", "/log", permission="log")
     async def __log_handler(self, req: Request) -> StreamResponse:
         if self.__log_reader is None:
             raise LogReaderDisabledError()

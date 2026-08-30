@@ -342,6 +342,15 @@ def make_config_scheme() -> dict:
                 "fail_open":   Option(True,   type=valid_bool),
             },
 
+            "janus_proxy": {
+                # kvmd brokers /janus/ws itself (rather than nginx proxying
+                # straight to the janus-ws unix socket) specifically so it
+                # can enforce streamer.webcam per-connection -- see
+                # kvmd/apps/kvmd/api/janus.py.
+                "unix_path": Option("/run/kvmd/janus-ws.sock", type=valid_abs_path),
+                "timeout":   Option(5.0, type=valid_float_f01),
+            },
+
             "oidc": {
                 "enabled":        Option(False, type=valid_bool),
                 "issuer":         Option("", type=valid_oidc_url, if_empty=""),

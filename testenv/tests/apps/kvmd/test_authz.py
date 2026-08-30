@@ -104,7 +104,7 @@ async def test_deny(aiohttp_server) -> None:  # type: ignore
 async def test_check_or_raise_allow(aiohttp_server) -> None:  # type: ignore
     async with _opa_server(aiohttp_server, allow=True) as url:
         async with _manager(url) as mgr:
-            await mgr.check_or_raise("alice", "streamer", {})
+            await mgr.check_or_raise("alice", "streamer.view", {})
 
 
 @pytest.mark.asyncio

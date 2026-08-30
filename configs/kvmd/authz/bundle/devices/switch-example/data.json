@@ -8,12 +8,12 @@
     ],
     "port_permissions": {
         "operator": {
-            "0": ["streamer", "hid", "switch.atx", "switch.port.activate", "switch.port.navigate"],
-            "1": ["streamer", "hid", "switch.atx", "switch.port.activate", "switch.port.navigate"]
+            "0": ["streamer.view", "snapshot", "hid", "switch.atx", "switch.port.activate", "switch.port.navigate"],
+            "1": ["streamer.view", "snapshot", "hid", "switch.atx", "switch.port.activate", "switch.port.navigate"]
         },
         "viewer": {
-            "0": ["streamer"],
-            "1": ["streamer"]
+            "0": ["streamer.view"],
+            "1": ["streamer.view"]
         }
     }
 }

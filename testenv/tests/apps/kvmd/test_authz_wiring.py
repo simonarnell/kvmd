@@ -167,7 +167,7 @@ async def test_ok__streamer_endpoint_calls_authz() -> None:
 
     with pytest.raises(ForbiddenError):
         await handler(req)  # type: ignore[arg-type]
-    assert authz_deny.calls == [("carol", "streamer", {"active_port": 3}, ("viewers",))]
+    assert authz_deny.calls == [("carol", "streamer.view", {"active_port": 3}, ("viewers",))]
 
 
 # =====
@@ -179,15 +179,120 @@ async def test_ok__streamer_endpoint_calls_authz() -> None:
 
 def test_ok__expected_http_actions_are_still_wired() -> None:
     from kvmd.apps.kvmd.api.switch import SwitchApi
+    from kvmd.apps.kvmd.api.atx import AtxApi
+    from kvmd.apps.kvmd.api.streamer import StreamerApi
+    from kvmd.apps.kvmd.api.msd import MsdApi
+    from kvmd.apps.kvmd.api.ugpio import UserGpioApi
+    from kvmd.apps.kvmd.api.log import LogApi
+    from kvmd.apps.kvmd.api.export import ExportApi
+    from kvmd.apps.kvmd.api.janus import JanusApi
 
-    switch_api = SwitchApi(switch=_FakeSwitch(), authz=_FakeAuthz(allow=True))  # type: ignore[arg-type]
-    hid_api = HidApi(hid=None, keymap_path="/nonexistent/default", authz=_FakeAuthz(allow=True), switch=_FakeSwitch())  # type: ignore[arg-type]
+    fake_authz = _FakeAuthz(allow=True)
+    fake_switch = _FakeSwitch()
+
+    apis: list[object] = [
+        SwitchApi(switch=fake_switch, authz=fake_authz),  # type: ignore[arg-type]
+        HidApi(hid=None, keymap_path="/nonexistent/default", authz=fake_authz, switch=fake_switch),  # type: ignore[arg-type]
+        AtxApi(atx=None),  # type: ignore[arg-type]
+        StreamerApi(streamer=None, ocr=None),  # type: ignore[arg-type]
+        MsdApi(msd=None),  # type: ignore[arg-type]
+        UserGpioApi(ugpio=None),  # type: ignore[arg-type]
+        LogApi(log_reader=None),
+        ExportApi(im=None, atx=None, ugpio=None),  # type: ignore[arg-type]
+        JanusApi(authz=fake_authz, switch=fake_switch, unix_path="/nonexistent.sock", timeout=5.0),  # type: ignore[arg-type]
+    ]
 
     permissions: set[str] = set()
-    for obj in (switch_api, hid_api):
+    for obj in apis:
         for exposed in _get_exposed_http(obj):
             if exposed.permission:
                 permissions.add(exposed.permission)
 
-    for expected in ("switch.port.navigate", "switch.port.configure", "switch.atx", "hid"):
-        assert expected in permissions, f"{expected!r} lost its permission= annotation"
+    expected = (
+        "switch.port.navigate", "switch.port.configure", "switch.atx",
+        "switch.device.configure", "switch.device.reset",
+        "hid", "msd.add", "msd.mount", "msd.delete", "msd.read", "msd.reset",
+        "gpio", "log", "export",
+        "streamer.view", "snapshot",
+        # NOT here: "switch.port.activate" and "webcam" are inline/manual
+        # authz.check() calls inside their handlers (like set_active), not
+        # permission= decorator annotations -- see the tests below for those.
+    )
+    for action in expected:
+        assert action in permissions, f"{action!r} lost its permission= annotation"
+
+
+# =====
+# Janus WS proxy: kvmd strips mic/camera negotiation from an unauthorized
+# user's "watch" request rather than blocking the connection outright, so
+# viewing still works and only injection is denied. See kvmd/apps/kvmd/api/janus.py.
+# =====
+
+def test_ok__janus_strips_webcam_when_not_allowed() -> None:
+    import json
+    from kvmd.apps.kvmd.api.janus import JanusApi
+
+    janus_api = JanusApi(authz=_FakeAuthz(allow=True), switch=_FakeSwitch(), unix_path="/nonexistent.sock", timeout=5.0)  # type: ignore[arg-type]
+    strip = janus_api._JanusApi__maybe_strip_webcam  # type: ignore[attr-defined]  # pylint: disable=protected-access
+
+    watch_msg = json.dumps({
+        "janus": "message", "session_id": 1, "handle_id": 2, "transaction": "t",
+        "body": {"request": "watch", "params": {"audio": True, "mic": True, "camera": True}},
+    })
+
+    stripped = json.loads(strip(watch_msg, False))
+    assert stripped["body"]["params"]["mic"] is False
+    assert stripped["body"]["params"]["camera"] is False
+    assert stripped["body"]["params"]["audio"] is True  # view-direction untouched
+
+
+def test_ok__janus_passes_watch_through_unchanged_when_allowed() -> None:
+    import json
+    from kvmd.apps.kvmd.api.janus import JanusApi
+
+    janus_api = JanusApi(authz=_FakeAuthz(allow=True), switch=_FakeSwitch(), unix_path="/nonexistent.sock", timeout=5.0)  # type: ignore[arg-type]
+    strip = janus_api._JanusApi__maybe_strip_webcam  # type: ignore[attr-defined]  # pylint: disable=protected-access
+
+    watch_msg = json.dumps({
+        "janus": "message", "session_id": 1, "handle_id": 2, "transaction": "t",
+        "body": {"request": "watch", "params": {"mic": True, "camera": True}},
+    })
+    assert strip(watch_msg, True) == watch_msg
+
+
+def test_ok__janus_leaves_non_watch_messages_untouched() -> None:
+    from kvmd.apps.kvmd.api.janus import JanusApi
+
+    janus_api = JanusApi(authz=_FakeAuthz(allow=True), switch=_FakeSwitch(), unix_path="/nonexistent.sock", timeout=5.0)  # type: ignore[arg-type]
+    strip = janus_api._JanusApi__maybe_strip_webcam  # type: ignore[attr-defined]  # pylint: disable=protected-access
+
+    for data in ('{"janus": "keepalive", "session_id": 1}', "not even json", ""):
+        assert strip(data, False) == data
+
+
+@pytest.mark.asyncio
+async def test_ok__janus_connect_denies_webcam_permission_separately_from_streamer_view() -> None:
+    from kvmd.apps.kvmd.api.janus import JanusApi
+
+    authz = _FakeAuthz(allow=False)  # denies everything, including "webcam"
+    switch = _FakeSwitch(active_port=1)
+    janus_api = JanusApi(authz=authz, switch=switch, unix_path="/nonexistent.sock", timeout=5.0)  # type: ignore[arg-type]
+
+    class _FakeReq:
+        headers: dict = {}
+        remote = "127.0.0.1"
+        query: dict = {}
+
+    req = _FakeReq()
+    htserver.set_request_auth_info(req, "carol", user="carol", groups=("viewers",))  # type: ignore[arg-type]
+
+    # The connection itself (streamer.view) is gated by the generic
+    # permission= mechanism in server.py, not exercised here -- this proves
+    # the *separate* manual webcam check fires with the right action name
+    # and resource, independent of that.
+    handler = janus_api._JanusApi__ws_proxy_handler  # type: ignore[attr-defined]  # pylint: disable=protected-access
+    try:
+        await handler(req)  # type: ignore[arg-type]
+    except Exception:
+        pass  # It'll fail trying to connect to the fake unix socket -- that's fine, we only care about the authz call below
+    assert ("carol", "webcam", {"active_port": 1}, ("viewers",)) in authz.calls

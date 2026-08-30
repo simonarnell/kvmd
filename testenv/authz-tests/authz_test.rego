@@ -294,3 +294,73 @@ test_no_user_groups_in_input_does_not_error if {
     # error — it should behave exactly like static-only per-user roles.
     _eval(_users, _roles, _devices, _group_roles, {"user": "bob", "device_id": "rack-b", "action": "hid.write", "resource": {"active_port": 0}})
 }
+
+# =====
+# Device-global actions (gpio, log, export, switch.device.configure,
+# switch.device.reset): unlike hid/streamer.view/msd, these aren't tied to
+# port selection at all, so they must NOT be blocked by active_port == null
+# on a plain switch-mode device (no port selected yet, not standalone).
+# =====
+
+_global_action_roles := {
+    "gpio-operator": {"permissions": ["gpio"]},
+    "viewer":        {"permissions": ["streamer.view"]},
+}
+
+test_gpio_allowed_with_no_active_port_on_switch_device if {
+    # Not standalone, no port selected -- gpio has nothing to do with ports.
+    _eval(
+        {"eve": {"roles": ["gpio-operator"]}}, _global_action_roles, {"rack-a": {}}, {},
+        {"user": "eve", "device_id": "rack-a", "action": "gpio", "resource": {"active_port": null}},
+    )
+}
+
+test_gpio_denied_for_role_without_gpio_permission if {
+    not _eval(
+        {"carol": {"roles": ["viewer"]}}, _global_action_roles, {"rack-a": {}}, {},
+        {"user": "carol", "device_id": "rack-a", "action": "gpio", "resource": {"active_port": null}},
+    )
+}
+
+# =====
+# streamer.view / snapshot / webcam are deliberately independent action
+# names (not a "streamer.*" namespace) specifically so a role holding only
+# streamer.view can never accidentally match "snapshot" or "webcam" via
+# OPA's prefix-based permission matching (startswith(action, perm)) -- if
+# they shared the "streamer." prefix, a bare "streamer" grant would silently
+# cover all three, which is exactly the escalation this naming avoids.
+# =====
+
+test_streamer_view_does_not_imply_snapshot if {
+    not _eval(_users, {"viewer": {"permissions": ["streamer.view"]}}, {"rack-b": {}}, {},
+        {"user": "carol", "device_id": "rack-b", "action": "snapshot", "resource": {"active_port": 0}})
+}
+
+test_streamer_view_does_not_imply_webcam if {
+    not _eval(_users, {"viewer": {"permissions": ["streamer.view"]}}, {"rack-b": {}}, {},
+        {"user": "carol", "device_id": "rack-b", "action": "webcam", "resource": {"active_port": 0}})
+}
+
+test_explicit_webcam_grant_allows_webcam if {
+    _eval(_users, {"viewer": {"permissions": ["streamer.view", "webcam"]}}, {"rack-b": {}}, {},
+        {"user": "carol", "device_id": "rack-b", "action": "webcam", "resource": {"active_port": 0}})
+}
+
+test_msd_reset_allowed_with_no_active_port_on_switch_device if {
+    # msd.reset is device-global, same reasoning as switch.device.reset --
+    # not tied to whichever port happens to be active.
+    _eval(
+        {"eve": {"roles": ["msd-admin"]}}, {"msd-admin": {"permissions": ["msd.reset"]}}, {"rack-a": {}}, {},
+        {"user": "eve", "device_id": "rack-a", "action": "msd.reset", "resource": {"active_port": null}},
+    )
+}
+
+test_msd_add_still_port_scoped if {
+    # Unlike msd.reset, msd.add/mount/delete/read follow the active port
+    # (the virtual USB drive is routed like HID/streamer), so they ARE
+    # blocked with no port selected on a non-standalone switch device.
+    not _eval(
+        {"eve": {"roles": ["msd-uploader"]}}, {"msd-uploader": {"permissions": ["msd.add"]}}, {"rack-a": {}}, {},
+        {"user": "eve", "device_id": "rack-a", "action": "msd.add", "resource": {"active_port": null}},
+    )
+}

@@ -85,6 +85,7 @@ from .api.hid import HidApi
 from .api.atx import AtxApi
 from .api.msd import MsdApi
 from .api.streamer import StreamerApi
+from .api.janus import JanusApi
 from .api.switch import SwitchApi
 from .api.export import ExportApi
 from .api.redfish.root import RedfishRootApi
@@ -168,6 +169,9 @@ class KvmdServer(HttpServer):  # pylint: disable=too-many-arguments,too-many-ins
         streamer: Streamer,
         snapshoter: Snapshoter,
 
+        janus_ws_unix_path: str,
+        janus_ws_timeout: float,
+
         allow_redirects: list[str],
 
         keymap_path: str,
@@ -198,6 +202,7 @@ class KvmdServer(HttpServer):  # pylint: disable=too-many-arguments,too-many-ins
             AtxApi(atx),
             MsdApi(msd),
             StreamerApi(streamer, ocr),
+            JanusApi(authz, switch, janus_ws_unix_path, janus_ws_timeout),
             SwitchApi(switch, authz),
             ExportApi(im, atx, ugpio),
             RedfishRootApi(),

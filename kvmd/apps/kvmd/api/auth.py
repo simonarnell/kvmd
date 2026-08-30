@@ -169,7 +169,7 @@ class AuthApi:
         active_port = self.__switch.get_active_port()  # -1 = no port active
         await self.__authz.check_or_raise(
             get_request_user(req),
-            "streamer",
+            "streamer.view",
             {"active_port": (active_port if active_port >= 0 else None)},
             groups=get_request_groups(req),
             source_ip=(req.remote or ""),

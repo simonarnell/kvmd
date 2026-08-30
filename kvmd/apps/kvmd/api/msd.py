@@ -67,7 +67,7 @@ class MsdApi:
     async def __state_handler(self, _: Request) -> Response:
         return make_json_response(await self.__msd.get_state())
 
-    @exposed_http("POST", "/msd/set_params")
+    @exposed_http("POST", "/msd/set_params", permission="msd.mount")
     async def __set_params_handler(self, req: Request) -> Response:
         query = dict(req.query)
 
@@ -93,14 +93,14 @@ class MsdApi:
         await self.__msd.set_params(remote_params=query, **params)  # type: ignore
         return make_json_response()
 
-    @exposed_http("POST", "/msd/set_connected")
+    @exposed_http("POST", "/msd/set_connected", permission="msd.mount")
     async def __set_connected_handler(self, req: Request) -> Response:
         await self.__msd.set_connected(valid_bool(req.query.get("connected")))
         return make_json_response()
 
     # =====
 
-    @exposed_http("GET", "/msd/read")
+    @exposed_http("GET", "/msd/read", permission="msd.read")
     async def __read_handler(self, req: Request) -> StreamResponse:
         name = valid_msd_image_name(req.query.get("image"))
         compressors = {
@@ -148,7 +148,7 @@ class MsdApi:
 
     # =====
 
-    @exposed_http("POST", "/msd/write")
+    @exposed_http("POST", "/msd/write", permission="msd.add")
     async def __write_handler(self, req: Request) -> Response:
         unsafe_prefix = req.query.get("prefix", "") + "/"
         name = valid_msd_image_name(unsafe_prefix + req.query.get("image", ""))
@@ -166,7 +166,7 @@ class MsdApi:
                 written = await writer.write_chunk(chunk)
         return make_json_response(self.__make_write_info(name, size, written))
 
-    @exposed_http("POST", "/msd/write_remote")
+    @exposed_http("POST", "/msd/write_remote", permission="msd.add")
     async def __write_remote_handler(self, req: Request) -> (Response | StreamResponse):  # pylint: disable=too-many-locals
         url = valid_url(req.query.get("url"))
         insecure = valid_bool(req.query.get("insecure", False))
@@ -223,12 +223,12 @@ class MsdApi:
 
     # =====
 
-    @exposed_http("POST", "/msd/remove")
+    @exposed_http("POST", "/msd/remove", permission="msd.delete")
     async def __remove_handler(self, req: Request) -> Response:
         await self.__msd.remove(valid_msd_image_name(req.query.get("image")))
         return make_json_response()
 
-    @exposed_http("POST", "/msd/reset")
+    @exposed_http("POST", "/msd/reset", permission="msd.reset")
     async def __reset_handler(self, _: Request) -> Response:
         await self.__msd.reset()
         return make_json_response()

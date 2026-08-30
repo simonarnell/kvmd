@@ -128,18 +128,18 @@ def test_superuser_allowed(client: httpx.Client, opa_url: str, user: str, device
 # =====
 
 @pytest.mark.parametrize(("action", "resource", "allowed"), [
-    ("streamer", {"active_port": 0}, True),
+    ("streamer.view", {"active_port": 0}, True),
     ("hid.write", {"active_port": 0}, False),
     ("switch.atx", {"active_port": 0}, False),
     ("switch.port.activate", {"port": 0}, False),
 
-    ("streamer", {"active_port": 1}, True),
+    ("streamer.view", {"active_port": 1}, True),
     ("hid.write", {"active_port": 1}, True),
     ("switch.atx", {"active_port": 1}, True),
     ("switch.port.activate", {"port": 1}, True),
     ("switch.port.navigate", {"active_port": 1}, True),
 
-    ("streamer", {"active_port": 2}, True),
+    ("streamer.view", {"active_port": 2}, True),
     ("hid.write", {"active_port": 2}, True),
     ("switch.atx", {"active_port": 2}, False),
     ("switch.port.activate", {"port": 2}, True),
@@ -164,7 +164,7 @@ def test_operator_rack_a(client: httpx.Client, opa_url: str, action: str, resour
     ("switch.atx", {"active_port": 0}),
     ("switch.port.activate", {"port": 0}),
     ("switch.port.activate", {"port": 5}),
-    ("streamer", {"active_port": 0}),
+    ("streamer.view", {"active_port": 0}),
     ("switch.port.navigate", {"active_port": 0}),
 ])
 def test_operator_rack_b_no_port_permissions(client: httpx.Client, opa_url: str, action: str, resource: dict) -> None:
@@ -172,14 +172,14 @@ def test_operator_rack_b_no_port_permissions(client: httpx.Client, opa_url: str,
 
 
 # =====
-# 04_viewer.sh: carol (viewer, permissions: ["streamer"]) can only stream,
+# 04_viewer.sh: carol (viewer, permissions: ["streamer.view"]) can only stream,
 # on any device/port.
 # =====
 
 @pytest.mark.parametrize(("device_id", "action", "resource", "allowed"), [
-    (RACK_A, "streamer", {"active_port": 0}, True),
-    (RACK_A, "streamer", {"active_port": 1}, True),
-    (RACK_B, "streamer", {"active_port": 0}, True),
+    (RACK_A, "streamer.view", {"active_port": 0}, True),
+    (RACK_A, "streamer.view", {"active_port": 1}, True),
+    (RACK_B, "streamer.view", {"active_port": 0}, True),
     (RACK_A, "hid.write", {"active_port": 0}, False),
     (RACK_A, "hid.write", {"active_port": 1}, False),
     (RACK_B, "hid.write", {"active_port": 0}, False),
@@ -204,7 +204,7 @@ def test_viewer(client: httpx.Client, opa_url: str, device_id: str, action: str,
     ("wbob", "hid.write", {"active_port": 0}, True),
     ("wbob", "hid.write", {"active_port": 1}, True),
     ("wbob", "switch.atx", {"active_port": 0}, True),
-    ("wbob", "streamer", {"active_port": 0}, True),
+    ("wbob", "streamer.view", {"active_port": 0}, True),
     ("wbob", "switch.port.navigate", {"active_port": 0}, True),
     ("wbob", "switch.port.activate", {"port": 2}, False),
     ("wbob", "switch.port.activate", {"port": 3}, False),
@@ -215,7 +215,7 @@ def test_viewer(client: httpx.Client, opa_url: str, device_id: str, action: str,
     ("lcarol", "switch.port.activate", {"port": 3}, True),
     ("lcarol", "hid.write", {"active_port": 2}, True),
     ("lcarol", "hid.write", {"active_port": 3}, True),
-    ("lcarol", "streamer", {"active_port": 2}, True),
+    ("lcarol", "streamer.view", {"active_port": 2}, True),
     ("lcarol", "switch.port.activate", {"port": 0}, False),
     ("lcarol", "switch.port.activate", {"port": 1}, False),
     ("lcarol", "hid.write", {"active_port": 0}, False),
@@ -256,8 +256,8 @@ def test_navigation(client: httpx.Client, opa_url: str, user: str, resource: dic
 @pytest.mark.parametrize(("user", "device_id", "action", "resource", "allowed"), [
     ("bob", STANDALONE, "hid.write", {"active_port": None}, True),
     ("bob", STANDALONE, "switch.atx", {"active_port": None}, True),
-    ("bob", STANDALONE, "streamer", {"active_port": None}, True),
-    ("carol", STANDALONE, "streamer", {"active_port": None}, True),
+    ("bob", STANDALONE, "streamer.view", {"active_port": None}, True),
+    ("carol", STANDALONE, "streamer.view", {"active_port": None}, True),
     ("carol", STANDALONE, "hid.write", {"active_port": None}, False),
     ("bob", STANDALONE, "switch.port.activate", {"port": 0}, False),
     ("bob", RACK_A, "hid.write", {"active_port": None}, False),
@@ -273,7 +273,7 @@ def test_standalone(client: httpx.Client, opa_url: str, user: str, device_id: st
 # =====
 
 @pytest.mark.parametrize(("device_id", "action", "resource", "allowed"), [
-    (RACK_A, "streamer", {"active_port": 0}, False),
+    (RACK_A, "streamer.view", {"active_port": 0}, False),
     (RACK_A, "hid.write", {"active_port": 0}, False),
     (RACK_A, "switch.atx", {"active_port": 0}, False),
     (RACK_A, "switch.port.activate", {"port": 0}, False),
@@ -295,10 +295,10 @@ def test_unknown_user(client: httpx.Client, opa_url: str, device_id: str, action
 @pytest.mark.parametrize(("user_groups", "action", "resource", "allowed"), [
     (["kvmd-operators"], "hid.write", {"active_port": 0}, True),
     (["kvmd-operators"], "switch.port.activate", {"port": 5}, True),
-    (["kvmd-viewers"], "streamer", {"active_port": 0}, True),
+    (["kvmd-viewers"], "streamer.view", {"active_port": 0}, True),
     (["kvmd-viewers"], "hid.write", {"active_port": 0}, False),  # viewer role: no hid
-    (["some-unmapped-group"], "streamer", {"active_port": 0}, False),
-    ([], "streamer", {"active_port": 0}, False),
+    (["some-unmapped-group"], "streamer.view", {"active_port": 0}, False),
+    ([], "streamer.view", {"active_port": 0}, False),
 ])
 def test_group_derived_role(
     client: httpx.Client, opa_url: str, user_groups: list[str], action: str, resource: dict, allowed: bool,
