@@ -41,11 +41,13 @@ import pytest
 import kvmd.htserver as htserver
 
 from kvmd.htserver import WsSession
+from kvmd.htserver import HttpExposed
 from kvmd.htserver import ForbiddenError
 from kvmd.htserver import _get_exposed_http  # pylint: disable=protected-access
 
 from kvmd.apps.kvmd.api.hid import HidApi
 from kvmd.apps.kvmd.api.auth import AuthApi
+from kvmd.apps.kvmd.server import KvmdServer
 
 
 class _FakeAuthz:
@@ -296,3 +298,78 @@ async def test_ok__janus_connect_denies_webcam_permission_separately_from_stream
     except Exception:
         pass  # It'll fail trying to connect to the fake unix socket -- that's fine, we only care about the authz call below
     assert ("carol", "webcam", {"active_port": 1}, ("viewers",)) in authz.calls
+
+
+# =====
+# Generic-mechanism proof: KvmdServer._check_request_auth() is the one
+# shared gate that every permission= annotation *except* HID/streamer/Janus
+# (which have their own dedicated tests above) relies on -- msd.*, gpio,
+# log, export, switch.device.* all go through this exact method with no
+# endpoint-specific code of their own. The static regression guard above
+# only proves each endpoint's decorator carries the right permission
+# string; this proves the shared mechanism those strings feed into
+# actually enforces them, using msd.add's real permission as the
+# representative case.
+# =====
+
+def _make_authz_checked_req(*, user: str, groups: tuple, is_usc: bool = False) -> Any:
+    class _FakeReq:
+        headers: dict = {}
+        remote = "127.0.0.1"
+
+    req = _FakeReq()
+    htserver.set_request_auth_info(req, "test", user=user, groups=groups, is_usc=is_usc)  # type: ignore[arg-type]
+    return req
+
+
+class _NoAuthRequired:
+    def is_auth_required(self, exposed: HttpExposed) -> bool:
+        return False  # skip AuthN entirely -- this test is only about the authz half
+
+
+class _FakeKvmdServerSelf:
+    """Duck-types just the two attributes _check_request_auth actually reads."""
+
+    def __init__(self, authz: _FakeAuthz, switch: _FakeSwitch) -> None:
+        self._KvmdServer__auth = _NoAuthRequired()  # pylint: disable=invalid-name
+        self._KvmdServer__authz = authz  # pylint: disable=invalid-name
+        self._KvmdServer__switch = switch  # pylint: disable=invalid-name
+
+
+_MSD_ADD_EXPOSED = HttpExposed(
+    "POST", "/msd/write", auth_required=True, allow_usc=True, permission="msd.add", handler=(lambda: None),
+)
+
+
+@pytest.mark.asyncio
+async def test_ok__generic_mechanism_blocks_when_authz_denies() -> None:
+    authz = _FakeAuthz(allow=False)
+    switch = _FakeSwitch(active_port=2)
+    fake_self = _FakeKvmdServerSelf(authz, switch)
+    req = _make_authz_checked_req(user="carol", groups=("viewers",))
+
+    with pytest.raises(ForbiddenError):
+        await KvmdServer._check_request_auth(fake_self, _MSD_ADD_EXPOSED, req)  # type: ignore[arg-type]
+    assert authz.calls == [("carol", "msd.add", {"active_port": 2}, ("viewers",))]
+
+
+@pytest.mark.asyncio
+async def test_ok__generic_mechanism_allows_when_authz_allows() -> None:
+    authz = _FakeAuthz(allow=True)
+    switch = _FakeSwitch(active_port=2)
+    fake_self = _FakeKvmdServerSelf(authz, switch)
+    req = _make_authz_checked_req(user="bob", groups=("operators",))
+
+    await KvmdServer._check_request_auth(fake_self, _MSD_ADD_EXPOSED, req)  # type: ignore[arg-type]  # must not raise
+    assert authz.calls == [("bob", "msd.add", {"active_port": 2}, ("operators",))]
+
+
+@pytest.mark.asyncio
+async def test_ok__generic_mechanism_bypasses_authz_for_usc() -> None:
+    authz = _FakeAuthz(allow=False)  # would deny if actually consulted
+    switch = _FakeSwitch(active_port=2)
+    fake_self = _FakeKvmdServerSelf(authz, switch)
+    req = _make_authz_checked_req(user="", groups=(), is_usc=True)
+
+    await KvmdServer._check_request_auth(fake_self, _MSD_ADD_EXPOSED, req)  # type: ignore[arg-type]  # must not raise
+    assert authz.calls == []  # USC bypasses the authz.check() call entirely

@@ -64,19 +64,21 @@ class JanusApi:
 
     @exposed_http("GET", "/janus/ws", permission="streamer.view")
     async def __ws_proxy_handler(self, req: Request) -> WebSocketResponse:
+        logger = get_logger(0)
+        user = (get_request_user(req) if not get_request_is_usc(req) else "")
+
         webcam_allowed = True
-        if not get_request_is_usc(req):
-            user = get_request_user(req)
-            if user:
-                active_port = self.__switch.get_active_port()  # -1 = no port active
-                webcam_allowed = await self.__authz.check(
-                    user,
-                    "webcam",
-                    {"active_port": (active_port if active_port >= 0 else None)},
-                    groups=get_request_groups(req),
-                    source_ip=(req.remote or ""),
-                    user_agent=req.headers.get("User-Agent", ""),
-                )
+        if user:
+            active_port = self.__switch.get_active_port()  # -1 = no port active
+            webcam_allowed = await self.__authz.check(
+                user,
+                "webcam",
+                {"active_port": (active_port if active_port >= 0 else None)},
+                groups=get_request_groups(req),
+                source_ip=(req.remote or ""),
+                user_agent=req.headers.get("User-Agent", ""),
+            )
+        logger.debug("janus: %s connecting to /janus/ws; webcam_allowed=%r", (user or "<usc>"), webcam_allowed)
 
         try:
             upstream_session = aiohttp.ClientSession(connector=aiohttp.UnixConnector(path=self.__unix_path))
@@ -86,8 +88,9 @@ class JanusApi:
                 timeout=aiohttp.ClientWSTimeout(ws_close=self.__timeout),
             )
         except Exception as ex:
-            get_logger(0).error("Can't connect to Janus WS backend at %r: %s", self.__unix_path, ex)
+            logger.error("janus: can't connect to Janus WS backend at %r: %s", self.__unix_path, ex)
             raise UnavailableError()
+        logger.debug("janus: connected to upstream WS backend at %r", self.__unix_path)
 
         client_wsr = WebSocketResponse(protocols=(_JANUS_SUBPROTOCOL,))
         await client_wsr.prepare(req)
@@ -103,6 +106,7 @@ class JanusApi:
             await upstream_session.close()
             if not client_wsr.closed:
                 await client_wsr.close()
+            logger.debug("janus: connection for %s closed", (user or "<usc>"))
 
         return client_wsr
 
@@ -136,8 +140,6 @@ class JanusApi:
                 break
 
     def __maybe_strip_webcam(self, data: str, webcam_allowed: bool) -> str:
-        if webcam_allowed:
-            return data
         try:
             envelope = json.loads(data)
         except Exception:
@@ -150,12 +152,14 @@ class JanusApi:
         params = body.get("params")
         if not isinstance(params, dict):
             return data
-        changed = False
-        for key in ("mic", "camera"):
-            if params.get(key):
-                params[key] = False
-                changed = True
-        if not changed:
+
+        requested = {key: bool(params.get(key)) for key in ("mic", "camera")}
+        get_logger(0).debug("janus: saw a \"watch\" request; requested=%r webcam_allowed=%r", requested, webcam_allowed)
+
+        if webcam_allowed or not any(requested.values()):
             return data
-        get_logger(0).info("Stripped webcam/mic negotiation from an unauthorized Janus \"watch\" request")
+
+        for key in ("mic", "camera"):
+            params[key] = False
+        get_logger(0).info("janus: stripped webcam/mic negotiation from an unauthorized \"watch\" request")
         return json.dumps(envelope)
