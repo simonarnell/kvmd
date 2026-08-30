@@ -56,6 +56,8 @@ from ..validators.auth import valid_expire
 
 from ..validators.oidc import valid_oidc_url
 
+from ..validators.logging import valid_log_level
+
 from ..validators.os import valid_abs_path
 from ..validators.os import valid_printable_filename
 from ..validators.os import valid_unix_mode
@@ -280,6 +282,14 @@ def make_config_scheme() -> dict:
                     "timeout": Option(5.0, type=valid_float_f01),
                 },
             },
+        },
+
+        "logging": {
+            # Applied to the root logger right after config load (see
+            # kvmd/apps/__init__.py:init()) -- init_logging() itself must run
+            # before config is available at all, so it bootstraps at a fixed
+            # INFO level; this is the config-driven level applied afterward.
+            "level": Option("info", type=valid_log_level),
         },
 
         "kvmd": {

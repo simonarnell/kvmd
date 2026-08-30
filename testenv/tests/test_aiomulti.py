@@ -21,11 +21,21 @@
 
 
 import signal
+import sys
 import time
 
 import pytest
 
 from kvmd.aiomulti import AioMpProcess
+
+
+# AioMpProcess.async_join() uses os.pidfd_open(), which is Linux-only, and
+# kvmd/__init__.py forces multiprocessing's "fork" start method process-wide
+# -- calling .start() below under a multi-threaded pytest runner on a
+# platform where fork() isn't the default (e.g. macOS) risks crashing the
+# interpreter rather than just failing the test. Both are properties of the
+# target platform, not of these tests, so skip outright off Linux.
+pytestmark = pytest.mark.skipif(sys.platform != "linux", reason="AioMpProcess requires Linux (os.pidfd_open) and safe fork() semantics")
 
 
 # =====

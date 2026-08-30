@@ -127,6 +127,18 @@ If you don't need group-based authz at all, drop the group scope from `scopes` a
 - Session cookies minted by the OIDC flow carry `HttpOnly` and `SameSite=Strict`, identical to password-based logins.
 - kvmd itself never receives or stores the user's IdP password.
 
+## Debug logging
+
+Everything above the audit-log level (which only records the final authenticated user/groups on success, or a one-line rejection reason on failure) is logged at `info`/`error` by default. For step-by-step tracing of a login attempt — the discovery/JWKS endpoints kvmd resolved, the exact authorize URL it built, the token endpoint call, and critically the `kid` on the ID token versus the `kid`s kvmd actually has cached from the IdP's JWKS (the single most common real-world OIDC misconfiguration) — turn on debug logging:
+
+```yaml
+# /etc/kvmd/override.yaml
+logging:
+    level: debug
+```
+
+This is a top-level option (a sibling of `kvmd:`, not nested under it) and applies to the whole process, not just OIDC — expect more output from everything, not only this feature. `systemctl restart kvmd`, reproduce the failing login, then `journalctl -u kvmd`. Nothing sensitive ends up in these traces — the PKCE `code_verifier` and the raw access/ID tokens are deliberately never logged, only claim *names* and token *header* fields (`alg`, `kid`).
+
 ## Troubleshooting
 
 | Symptom | Likely cause |

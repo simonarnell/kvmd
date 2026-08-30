@@ -49,6 +49,7 @@ from ..validators.os import valid_abs_file
 from ..validators.os import valid_abs_dir
 
 from ._logging import init_logging
+from ._logging import set_log_level
 from ._scheme import make_config_scheme
 from ._scheme import patch_dynamic
 from ._scheme import patch_raw
@@ -172,6 +173,8 @@ def init(
         )
     except ConfigError as ex:
         raise SystemExit(tools.efmt(ex))
+
+    set_log_level(config.logging.level)
 
     if dump_only:
         print(dump_yaml(

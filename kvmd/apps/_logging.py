@@ -55,3 +55,11 @@ def init_logging(cli: bool) -> None:
             "-- {levelname:>7} -- {message}",
             style="{",
         ))
+
+
+def set_log_level(level: str) -> None:
+    # Called once config is available (init_logging() itself runs before
+    # that, so it can't read this from config) -- see kvmd/apps/__init__.py.
+    # The handler is already at DEBUG (init_logging() above), so this is the
+    # only thing standing between "info" and seeing debug-level traces.
+    logging.getLogger().setLevel(level)

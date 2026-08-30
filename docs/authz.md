@@ -281,6 +281,18 @@ user='bob' groups=('kvmd-operators',) action='hid' resource={'active_port': 1} d
 ```
 This is a standard Python logger under kvmd's logging configuration — route it to a file, syslog, or a log-shipping pipeline the same way you would any other kvmd log stream.
 
+## Debug logging
+
+The audit log above records every *decision*, but not the raw request/response exchanged with OPA — for diagnosing why a decision came out the way it did (a `port_permissions` entry not matching the port you expected, a group not resolving to the role you thought it would), turn on debug logging:
+
+```yaml
+# /etc/kvmd/override.yaml
+logging:
+    level: debug
+```
+
+This is a top-level option (a sibling of `kvmd:`, not nested under it) and applies to the whole process, not just authz — expect more output from everything, not only this feature. `systemctl restart kvmd`, reproduce the request, then `journalctl -u kvmd`. At debug level you get the exact `input` document sent to OPA (`user`, `user_groups`, `device_id`, `action`, `resource`) and the raw `data` response it returned, in addition to the one-line audit record above — usually enough to tell whether the problem is on kvmd's side (wrong groups sent) or the policy's side (right input, wrong `data.json`).
+
 ## See also
 
 - [OIDC authentication](oidc.md) — the primary source of group claims for fleet-wide role assignment.
