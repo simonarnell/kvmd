@@ -15,13 +15,13 @@ kvmd never sees a user's password. Instead, the browser is redirected to your Id
     ├─────────────────────────────►│                                │
     │  302 → IdP authorize URL     │                                │
     │◄─────────────────────────────┤                                │
-    │  (state, nonce, PKCE challenge baked into the URL)             │
-    │                                                                │
+    │  (state, nonce, PKCE challenge baked into the URL)            │
+    │                                                               │
     │  user authenticates at the IdP directly                       │
     ├───────────────────────────────────────────────────────────────►
-    │                                                                │
-    │  302 → /api/auth/oidc/callback?code=...&state=...              │
-    │◄───────────────────────────────────────────────────────────────┤
+    │                                                               │
+    │  302 → /api/auth/oidc/callback?code=...&state=...             │
+    │◄──────────────────────────────────────────────────────────────┤
     │                              │                                │
     │  GET /api/auth/oidc/callback │                                │
     ├─────────────────────────────►│  POST token endpoint           │
@@ -29,7 +29,7 @@ kvmd never sees a user's password. Instead, the browser is redirected to your Id
     │                              │  id_token (JWT), access_token  │
     │                              │◄───────────────────────────────┤
     │                              │  validate signature via JWKS,  │
-    │                              │  iss/aud/exp/nonce              │
+    │                              │  iss/aud/exp/nonce             │
     │  Set-Cookie: auth_token=...  │                                │
     │◄─────────────────────────────┤                                │
 ```

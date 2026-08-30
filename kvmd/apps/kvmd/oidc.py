@@ -205,6 +205,7 @@ class OidcManager:  # pylint: disable=too-many-instance-attributes
 
         id_token = token_data.get("id_token")
         if not id_token:
+            get_logger(0).error("oidc: token response did not include an id_token (keys present: %r)", sorted(token_data.keys()))
             raise OidcError("Token response did not include an id_token")
 
         identity = (await self.__validate_id_token(id_token, pending.nonce))
@@ -228,15 +229,21 @@ class OidcManager:  # pylint: disable=too-many-instance-attributes
                 await self.__refresh_discovery()
                 claims = jose_jwt.decode(id_token, self.__jwks, claims_options=claims_options)
             except Exception as retry_ex:
+                get_logger(0).error("oidc: id_token validation still failing after JWKS refresh: %s", retry_ex)
                 raise OidcError("Invalid id_token") from retry_ex
 
         try:
             claims.validate(leeway=60)
         except JoseError as ex:
+            get_logger(0).error("oidc: id_token claims validation failed (iss/aud/exp/nonce): %s", ex)
             raise OidcError("Invalid id_token claims") from ex
 
         user = claims.get(self.__username_claim)
         if not user or not str(user).strip():
+            get_logger(0).error(
+                "oidc: id_token missing username claim %r (claims present: %r)",
+                self.__username_claim, sorted(claims.keys()),
+            )
             raise OidcError(f"id_token is missing the configured username claim {self.__username_claim!r}")
 
         groups_raw = claims.get(self.__groups_claim) or []

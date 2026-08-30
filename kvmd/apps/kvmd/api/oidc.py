@@ -24,6 +24,8 @@ from aiohttp.web import Request
 from aiohttp.web import Response
 from aiohttp.web import HTTPFound
 
+from ....logging import get_logger
+
 from ....htserver import ForbiddenError
 from ....htserver import exposed_http
 from ....htserver import make_json_response
@@ -67,17 +69,24 @@ class OidcApi:
         if not self.__oidc.is_oidc_enabled():
             raise ForbiddenError()
 
-        if req.query.get("error"):
+        idp_error = req.query.get("error")
+        if idp_error:
+            get_logger(0).error(
+                "oidc: IdP returned an error on callback: error=%r description=%r",
+                idp_error, req.query.get("error_description", ""),
+            )
             raise ForbiddenError()
 
         code = req.query.get("code", "")
         state = req.query.get("state", "")
         if not code or not state:
+            get_logger(0).error("oidc: callback missing code and/or state (code=%r, state=%r)", bool(code), bool(state))
             raise ForbiddenError()
 
         try:
             (identity, redirect) = (await self.__oidc.handle_callback(code, state))
-        except OidcError:
+        except OidcError as ex:
+            get_logger(0).error("oidc: callback rejected: %s", ex)
             raise ForbiddenError()  # pylint: disable=raise-missing-from
 
         token = await self.__auth.login_external(identity, expire=0)

@@ -58,7 +58,7 @@ def _make_key() -> tuple[dict, dict]:
     return (pub, priv)
 
 
-def _make_idp_app(issuer_holder: dict, pub: dict, priv: dict, nonces: dict) -> web.Application:
+def _make_idp_app(issuer_holder: dict, pub: dict, priv: dict, nonces: dict, overrides: dict) -> web.Application:
     app = web.Application()
 
     async def discovery(_: web.Request) -> web.Response:
@@ -79,6 +79,11 @@ def _make_idp_app(issuer_holder: dict, pub: dict, priv: dict, nonces: dict) -> w
         assert data["grant_type"] == "authorization_code"
 
         code = str(data["code"])
+        override = overrides.get(code, {})
+
+        if override.get("omit_id_token"):
+            return web.json_response({"access_token": "at", "token_type": "Bearer"})
+
         nonce = nonces.get(code, "unknown-nonce")
         now = int(time.time())
         payload = {
@@ -91,6 +96,9 @@ def _make_idp_app(issuer_holder: dict, pub: dict, priv: dict, nonces: dict) -> w
             "preferred_username": "alice",
             "groups": ["admins", "ops"],
         }
+        payload.update(override.get("payload", {}))
+        for key in override.get("omit_claims", []):
+            payload.pop(key, None)
         header = {"alg": "RS256", "kid": pub["kid"]}
         id_token = jose_jwt.encode(header, payload, priv).decode()
         return web.json_response({"access_token": "at", "id_token": id_token, "token_type": "Bearer"})
@@ -102,12 +110,13 @@ def _make_idp_app(issuer_holder: dict, pub: dict, priv: dict, nonces: dict) -> w
 
 
 @contextlib.asynccontextmanager
-async def _manager(aiohttp_server: Any) -> AsyncGenerator[tuple[OidcManager, dict], None]:
+async def _manager(aiohttp_server: Any) -> AsyncGenerator[tuple[OidcManager, dict, dict], None]:
     (pub, priv) = _make_key()
     issuer_holder: dict = {}
     nonces: dict = {}
+    overrides: dict = {}
 
-    server = await aiohttp_server(_make_idp_app(issuer_holder, pub, priv, nonces))
+    server = await aiohttp_server(_make_idp_app(issuer_holder, pub, priv, nonces, overrides))
     issuer_holder["issuer"] = f"http://localhost:{server.port}"
 
     mgr = OidcManager(
@@ -124,7 +133,7 @@ async def _manager(aiohttp_server: Any) -> AsyncGenerator[tuple[OidcManager, dic
     )
     await mgr.sysprep()
     try:
-        yield (mgr, nonces)
+        yield (mgr, nonces, overrides)
     finally:
         await mgr.cleanup()
 
@@ -139,7 +148,7 @@ def _extract_state_and_nonce(url: str) -> tuple[str, str]:
 # =====
 @pytest.mark.asyncio
 async def test_ok__happy_path(aiohttp_server: Any) -> None:
-    async with _manager(aiohttp_server) as (mgr, nonces):
+    async with _manager(aiohttp_server) as (mgr, nonces, _overrides):
         url = mgr.build_authorize_url(redirect="/kvm")
         assert "response_type=code" in url
         assert "code_challenge=" in url
@@ -157,7 +166,7 @@ async def test_ok__happy_path(aiohttp_server: Any) -> None:
 
 @pytest.mark.asyncio
 async def test_fail__state_is_single_use(aiohttp_server: Any) -> None:
-    async with _manager(aiohttp_server) as (mgr, nonces):
+    async with _manager(aiohttp_server) as (mgr, nonces, _overrides):
         url = mgr.build_authorize_url(redirect="/kvm")
         (state, nonce) = _extract_state_and_nonce(url)
         nonces["code1"] = nonce
@@ -169,14 +178,14 @@ async def test_fail__state_is_single_use(aiohttp_server: Any) -> None:
 
 @pytest.mark.asyncio
 async def test_fail__unknown_state(aiohttp_server: Any) -> None:
-    async with _manager(aiohttp_server) as (mgr, _):
+    async with _manager(aiohttp_server) as (mgr, _nonces, _overrides):
         with pytest.raises(OidcError):
             await mgr.handle_callback("some-code", "not-a-real-state")
 
 
 @pytest.mark.asyncio
 async def test_fail__nonce_mismatch(aiohttp_server: Any) -> None:
-    async with _manager(aiohttp_server) as (mgr, nonces):
+    async with _manager(aiohttp_server) as (mgr, nonces, _overrides):
         url = mgr.build_authorize_url(redirect="/kvm")
         (state, _nonce) = _extract_state_and_nonce(url)
         nonces["code1"] = "a-completely-different-nonce"
@@ -196,3 +205,93 @@ async def test_ok__disabled() -> None:
     assert not mgr.is_oidc_enabled()
     await mgr.sysprep()  # No-op when disabled: must not try to reach an issuer
     await mgr.cleanup()
+
+
+# =====
+# Logging coverage: each of these failure paths must leave a diagnosable
+# trace, not just silently raise OidcError. This is the regression test for
+# the specific gap that shipped originally -- api/oidc.py's callback handler
+# had zero log statements, so several real IdP/config-error paths produced a
+# bare 403 with nothing in kvmd's logs to explain why.
+# =====
+
+@pytest.mark.asyncio
+async def test_fail__missing_id_token_is_logged(aiohttp_server: Any, caplog: Any) -> None:
+    async with _manager(aiohttp_server) as (mgr, nonces, overrides):
+        url = mgr.build_authorize_url(redirect="/kvm")
+        (state, nonce) = _extract_state_and_nonce(url)
+        nonces["code1"] = nonce
+        overrides["code1"] = {"omit_id_token": True}
+
+        with pytest.raises(OidcError, match="did not include an id_token"):
+            await mgr.handle_callback("code1", state)
+        assert any("id_token" in rec.message for rec in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_fail__missing_username_claim_is_logged(aiohttp_server: Any, caplog: Any) -> None:
+    async with _manager(aiohttp_server) as (mgr, nonces, overrides):
+        url = mgr.build_authorize_url(redirect="/kvm")
+        (state, nonce) = _extract_state_and_nonce(url)
+        nonces["code1"] = nonce
+        overrides["code1"] = {"omit_claims": ["preferred_username"]}
+
+        with pytest.raises(OidcError, match="missing the configured username claim"):
+            await mgr.handle_callback("code1", state)
+        assert any("username claim" in rec.message for rec in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_fail__expired_token_claims_failure_is_logged(aiohttp_server: Any, caplog: Any) -> None:
+    async with _manager(aiohttp_server) as (mgr, nonces, overrides):
+        url = mgr.build_authorize_url(redirect="/kvm")
+        (state, nonce) = _extract_state_and_nonce(url)
+        nonces["code1"] = nonce
+        overrides["code1"] = {"payload": {"exp": int(time.time()) - 3600}}  # expired an hour ago
+
+        with pytest.raises(OidcError, match="Invalid id_token claims"):
+            await mgr.handle_callback("code1", state)
+        assert any("claims validation failed" in rec.message for rec in caplog.records)
+
+
+# =====
+# Same logging-coverage concern, one layer up: OidcApi's callback handler
+# is what actually converts an OidcError (or the IdP's own error param)
+# into the bare 403 the browser sees -- it must not eat the reason.
+# =====
+
+class _FakeOidcManagerEnabled:
+    def is_oidc_enabled(self) -> bool:
+        return True
+
+
+@pytest.mark.asyncio
+async def test_fail__idp_error_param_is_logged(caplog: Any) -> None:
+    from aiohttp.test_utils import make_mocked_request
+
+    from kvmd.apps.kvmd.api.oidc import OidcApi
+    from kvmd.htserver import ForbiddenError
+
+    api = OidcApi(oidc=_FakeOidcManagerEnabled(), auth=None, allow_redirects=[])  # type: ignore[arg-type]
+    handler = api._OidcApi__callback_handler  # type: ignore[attr-defined]  # pylint: disable=protected-access
+
+    req = make_mocked_request("GET", "/auth/oidc/callback?error=invalid_scope&error_description=bad+scope")
+    with pytest.raises(ForbiddenError):
+        await handler(req)
+    assert any("invalid_scope" in rec.message for rec in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_fail__missing_code_or_state_is_logged(caplog: Any) -> None:
+    from aiohttp.test_utils import make_mocked_request
+
+    from kvmd.apps.kvmd.api.oidc import OidcApi
+    from kvmd.htserver import ForbiddenError
+
+    api = OidcApi(oidc=_FakeOidcManagerEnabled(), auth=None, allow_redirects=[])  # type: ignore[arg-type]
+    handler = api._OidcApi__callback_handler  # type: ignore[attr-defined]  # pylint: disable=protected-access
+
+    req = make_mocked_request("GET", "/auth/oidc/callback?state=onlystate")
+    with pytest.raises(ForbiddenError):
+        await handler(req)
+    assert any("missing code and/or state" in rec.message for rec in caplog.records)
