@@ -80,15 +80,19 @@ def opa_url() -> Any:
         yield f"http://{host}:{port}/v1/data/kvmd/authz/allow"
 
 
-def _check(client: httpx.Client, opa_url: str, user: str, device_id: str, action: str, resource: dict) -> bool:
-    resp = client.post(opa_url, json={
-        "input": {
-            "user": user,
-            "device_id": device_id,
-            "action": action,
-            "resource": resource,
-        },
-    })
+def _check(
+    client: httpx.Client, opa_url: str, user: str, device_id: str, action: str, resource: dict,
+    *, user_groups: list[str] | None = None,
+) -> bool:
+    input_data = {
+        "user": user,
+        "device_id": device_id,
+        "action": action,
+        "resource": resource,
+    }
+    if user_groups is not None:
+        input_data["user_groups"] = user_groups
+    resp = client.post(opa_url, json={"input": input_data})
     resp.raise_for_status()
     return bool(resp.json().get("result", False))
 
@@ -279,3 +283,37 @@ def test_standalone(client: httpx.Client, opa_url: str, user: str, device_id: st
 ])
 def test_unknown_user(client: httpx.Client, opa_url: str, device_id: str, action: str, resource: dict, allowed: bool) -> None:
     assert _check(client, opa_url, "unknown", device_id, action, resource) == allowed
+
+
+# =====
+# Group-derived roles: an identity with no static data.users entry at all
+# (e.g. an OIDC-only account) gets roles via data.group_roles[group] matched
+# against input.user_groups from the caller's session — the mechanism that
+# lets IdP group membership drive authz, not just per-user bundle entries.
+# =====
+
+@pytest.mark.parametrize(("user_groups", "action", "resource", "allowed"), [
+    (["kvmd-operators"], "hid.write", {"active_port": 0}, True),
+    (["kvmd-operators"], "switch.port.activate", {"port": 5}, True),
+    (["kvmd-viewers"], "streamer", {"active_port": 0}, True),
+    (["kvmd-viewers"], "hid.write", {"active_port": 0}, False),  # viewer role: no hid
+    (["some-unmapped-group"], "streamer", {"active_port": 0}, False),
+    ([], "streamer", {"active_port": 0}, False),
+])
+def test_group_derived_role(
+    client: httpx.Client, opa_url: str, user_groups: list[str], action: str, resource: dict, allowed: bool,
+) -> None:
+    # "dave" has no data.users entry — access is entirely group-derived.
+    assert _check(client, opa_url, "dave", RACK_B, action, resource, user_groups=user_groups) == allowed
+
+
+def test_group_role_combines_with_static_role(client: httpx.Client, opa_url: str) -> None:
+    # bob is statically an operator (data.users) AND in kvmd-viewers (group);
+    # the union must not downgrade him to viewer-only.
+    assert _check(client, opa_url, "bob", RACK_B, "switch.port.activate", {"port": 5}, user_groups=["kvmd-viewers"])
+
+
+def test_group_role_absent_user_groups_key_still_works(client: httpx.Client, opa_url: str) -> None:
+    # Omitting "user_groups" from input entirely (older kvmd client) must not
+    # error — static per-user roles keep working exactly as before.
+    assert _check(client, opa_url, "bob", RACK_B, "hid.write", {"active_port": 0})

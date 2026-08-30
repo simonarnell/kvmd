@@ -292,7 +292,7 @@ def set_request_auth_info(req: BaseRequest, info: str, token: str="", user: str=
     setattr(req, _REQUEST_AUTH_IS_USC, is_usc)
 
 
-def _get_request_auth_token(req: BaseRequest) -> str:
+def get_request_auth_token(req: BaseRequest) -> str:
     return str(getattr(req, _REQUEST_AUTH_TOKEN, ""))
 
 
@@ -438,7 +438,7 @@ class HttpServer:
         assert self.__ws_heartbeat is not None
         wsr = WebSocketResponse(heartbeat=self.__ws_heartbeat)
         await wsr.prepare(req)
-        ws = WsSession(wsr, _get_request_auth_token(req), kwargs)
+        ws = WsSession(wsr, get_request_auth_token(req), kwargs)
 
         try:
             self.__add_ws(ws)

@@ -78,6 +78,7 @@ class AuthzManager:
         action: str,
         resource: dict,
         *,
+        groups: tuple[str, ...] = (),
         source_ip: str = "",
         user_agent: str = "",
     ) -> bool:
@@ -87,10 +88,11 @@ class AuthzManager:
         assert self.__session is not None
 
         input_data = {
-            "user":      user,
-            "device_id": self.__device_id,
-            "action":    action,
-            "resource":  resource,
+            "user":        user,
+            "user_groups": list(groups),
+            "device_id":   self.__device_id,
+            "action":      action,
+            "resource":    resource,
         }
 
         allowed = self.__fail_open
@@ -113,8 +115,8 @@ class AuthzManager:
             )
 
         _audit_log.info(
-            "user=%r action=%r resource=%r device=%r allowed=%r opa_error=%r source_ip=%r user_agent=%r",
-            user, action, resource, self.__device_id, allowed, opa_error, source_ip, user_agent,
+            "user=%r groups=%r action=%r resource=%r device=%r allowed=%r opa_error=%r source_ip=%r user_agent=%r",
+            user, groups, action, resource, self.__device_id, allowed, opa_error, source_ip, user_agent,
         )
 
         return allowed
@@ -125,8 +127,9 @@ class AuthzManager:
         action: str,
         resource: dict,
         *,
+        groups: tuple[str, ...] = (),
         source_ip: str = "",
         user_agent: str = "",
     ) -> None:
-        if not (await self.check(user, action, resource, source_ip=source_ip, user_agent=user_agent)):
+        if not (await self.check(user, action, resource, groups=groups, source_ip=source_ip, user_agent=user_agent)):
             raise ForbiddenError()

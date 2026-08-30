@@ -13,6 +13,14 @@
 #   data/data.json                        →  data.users, data.roles
 #   data/devices/switch-example/data.json →  data.devices["switch-example"]
 #
+# Roles can be granted two ways: statically per-user (data.users[user].roles,
+# for htpasswd/LDAP/RADIUS/PAM-backed accounts provisioned directly in the
+# bundle), or via group membership (data.group_roles[group], matched against
+# input.user_groups — the group claims from an OIDC ID token, or any auth
+# backend that surfaces group membership). Both feed the same _user_roles set
+# below, so a user can hold roles from either or both sources at once. See
+# the _user_roles helper for details.
+#
 # ---------------------------------------------------------------------------
 # Two deployment modes
 # ---------------------------------------------------------------------------
@@ -58,7 +66,7 @@ default allow := false
 # =====
 
 allow if {
-    some role in data.users[input.user].roles
+    some role in _user_roles
     "*" in data.roles[role].permissions
 }
 
@@ -70,7 +78,7 @@ allow if {
 allow if {
     input.action == "switch.port.activate"
     not data.devices[input.device_id].standalone
-    some role in data.users[input.user].roles
+    some role in _user_roles
     _role_has_port_permission(role, input.resource.port, "switch.port.activate")
 }
 
@@ -87,7 +95,7 @@ allow if {
 allow if {
     input.action == "switch.port.navigate"
     input.resource.active_port != null
-    some role in data.users[input.user].roles
+    some role in _user_roles
     _role_has_port_permission(role, input.resource.active_port, "switch.port.navigate")
 }
 
@@ -105,7 +113,7 @@ allow if {
     input.action != "switch.port.activate"
     input.action != "switch.port.navigate"
     input.resource.active_port != null
-    some role in data.users[input.user].roles
+    some role in _user_roles
     _role_has_port_permission(role, input.resource.active_port, input.action)
 }
 
@@ -125,13 +133,37 @@ allow if {
     input.action != "switch.port.navigate"
     input.resource.active_port == null
     data.devices[input.device_id].standalone == true
-    some role in data.users[input.user].roles
+    some role in _user_roles
     _role_allows(role, input.action)
 }
 
 # =====
 # Helpers
 # =====
+
+# The set of roles granted to the current request, from two sources:
+#   1. Static per-user roles: data.users[input.user].roles (existing config,
+#      e.g. htpasswd/LDAP/RADIUS/PAM users provisioned directly in the bundle).
+#   2. Group-derived roles: for every group in input.user_groups (populated
+#      by kvmd from the caller's session — OIDC ID token claims, or any auth
+#      backend that surfaces group membership), any role listed in
+#      data.group_roles[group] is granted too.
+#
+# input.user_groups is always present (kvmd sends [] when the session has no
+# groups), so this is purely additive — existing per-user bundles work
+# unchanged with no group_roles configured at all.
+#
+#   data/data.json:
+#   { "group_roles": { "admins": ["superuser"], "operators": ["operator"] } }
+
+_user_roles contains role if {
+    some role in data.users[input.user].roles
+}
+
+_user_roles contains role if {
+    some group in input.user_groups
+    some role in data.group_roles[group]
+}
 
 # Check whether a role permits an action on a specific port.
 #

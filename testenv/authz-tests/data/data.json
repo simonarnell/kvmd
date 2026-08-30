@@ -42,5 +42,9 @@
                 "streamer"
             ]
         }
+    },
+    "group_roles": {
+        "kvmd-operators": ["operator"],
+        "kvmd-viewers": ["viewer"]
     }
 }

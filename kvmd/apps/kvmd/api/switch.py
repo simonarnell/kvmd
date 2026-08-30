@@ -28,6 +28,7 @@ from ....htserver import make_json_response
 from ....htserver import ForbiddenError
 from ....htserver import get_request_user
 from ....htserver import get_request_is_usc
+from ....htserver import get_request_auth_token
 
 from ....validators.basic import valid_bool
 from ....validators.basic import valid_int_f0
@@ -43,14 +44,16 @@ from ....validators.switch import valid_switch_atx_click_delay
 
 from ..switch import Switch
 from ..switch import Colors
+from ..auth import AuthManager
 from ..authz import AuthzManager
 
 
 # =====
 class SwitchApi:
-    def __init__(self, switch: Switch, authz: AuthzManager) -> None:
+    def __init__(self, switch: Switch, authz: AuthzManager, auth: AuthManager) -> None:
         self.__switch = switch
         self.__authz = authz
+        self.__auth = auth
 
     # =====
 
@@ -75,10 +78,13 @@ class SwitchApi:
         if not get_request_is_usc(req):
             user = get_request_user(req)
             if user:
+                token = get_request_auth_token(req)
+                groups = (self.__auth.get_session_groups(token) if token else ())
                 if not (await self.__authz.check(
                     user,
                     "switch.port.activate",
                     {"port": int(port)},
+                    groups=groups,
                     source_ip=(req.remote or ""),
                     user_agent=req.headers.get("User-Agent", ""),
                 )):

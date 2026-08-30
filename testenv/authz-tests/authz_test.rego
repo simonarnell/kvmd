@@ -5,6 +5,7 @@
 package kvmd.authz_test
 
 import rego.v1
+import data.kvmd.authz
 
 # =====
 # Shared test data
@@ -260,4 +261,55 @@ test_switch_device_without_standalone_flag_still_denies if {
     # regression: non-standalone device + null active_port must still deny
     not authz.allow with input as {"user": "bob", "device_id": "switch-pikvm", "action": "hid.write", "resource": {"active_port": null}}
                     with data as _standalone_data
+}
+
+# =====
+# Group-derived roles: a user with no per-user data.users entry (e.g. an
+# OIDC-only identity) gets roles via data.group_roles[group] matched against
+# input.user_groups, on equal footing with statically-provisioned users.
+# =====
+
+_data_with_groups := object.union(_data, {"group_roles": {
+    "kvmd-operators": ["operator"],
+    "kvmd-viewers":   ["viewer"],
+}})
+
+test_group_role_grants_operator_access if {
+    # "dave" has no data.users entry at all — only an OIDC group claim.
+    authz.allow with input as {
+        "user": "dave", "user_groups": ["kvmd-operators"],
+        "device_id": "rack-b", "action": "hid.write", "resource": {"active_port": 0},
+    } with data as _data_with_groups
+}
+
+test_group_role_respects_role_permissions if {
+    # kvmd-viewers only grants the viewer role — still no hid access.
+    not authz.allow with input as {
+        "user": "dave", "user_groups": ["kvmd-viewers"],
+        "device_id": "rack-b", "action": "hid.write", "resource": {"active_port": 0},
+    } with data as _data_with_groups
+}
+
+test_group_role_unmapped_group_denied if {
+    # A group with no data.group_roles entry grants nothing.
+    not authz.allow with input as {
+        "user": "dave", "user_groups": ["some-other-group"],
+        "device_id": "rack-b", "action": "hid.write", "resource": {"active_port": 0},
+    } with data as _data_with_groups
+}
+
+test_static_and_group_roles_combine if {
+    # "bob" is statically an operator (data.users) AND in kvmd-viewers (group)
+    # — he should still get full operator access; the union doesn't downgrade.
+    authz.allow with input as {
+        "user": "bob", "user_groups": ["kvmd-viewers"],
+        "device_id": "rack-b", "action": "switch.port.activate", "resource": {"port": 5},
+    } with data as _data_with_groups
+}
+
+test_no_user_groups_in_input_does_not_error if {
+    # input.user_groups entirely absent (e.g. an older kvmd client) must not
+    # error — it should behave exactly like static-only per-user roles.
+    authz.allow with input as {"user": "bob", "device_id": "rack-b", "action": "hid.write", "resource": {"active_port": 0}}
+                 with data as _data_with_groups
 }
