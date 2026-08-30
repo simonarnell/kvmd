@@ -54,6 +54,8 @@ from ..validators.auth import valid_user
 from ..validators.auth import valid_users_list
 from ..validators.auth import valid_expire
 
+from ..validators.oidc import valid_oidc_url
+
 from ..validators.os import valid_abs_path
 from ..validators.os import valid_printable_filename
 from ..validators.os import valid_unix_mode
@@ -328,6 +330,19 @@ def make_config_scheme() -> dict:
                 "opa_timeout": Option(0.5,    type=valid_float_f01),
                 "device_id":   Option("",     type=valid_stripped_string),
                 "fail_open":   Option(True,   type=valid_bool),
+            },
+
+            "oidc": {
+                "enabled":        Option(False, type=valid_bool),
+                "issuer":         Option("", type=valid_oidc_url, if_empty=""),
+                "client_id":      Option("", type=valid_stripped_string),
+                "client_secret":  Option("", type=valid_stripped_string),
+                "redirect_uri":   Option("", type=valid_oidc_url, if_empty=""),
+                "scopes":         Option(["openid", "profile", "groups"], type=valid_string_list),
+                "username_claim": Option("preferred_username", type=valid_stripped_string_not_empty),
+                "groups_claim":   Option("groups", type=valid_stripped_string_not_empty),
+                "verify_ssl":     Option(True, type=valid_bool),
+                "timeout":        Option(5.0, type=valid_float_f01),
             },
 
             "info": {  # Accessed via global config, see kvmd/info for details

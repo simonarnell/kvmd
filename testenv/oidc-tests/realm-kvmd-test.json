@@ -1,0 +1,84 @@
+{
+    "realm": "kvmd-test",
+    "enabled": true,
+    "sslRequired": "none",
+    "groups": [
+        {"name": "admins"},
+        {"name": "operators"}
+    ],
+    "clientScopes": [
+        {
+            "name": "profile",
+            "protocol": "openid-connect",
+            "protocolMappers": [
+                {
+                    "name": "preferred_username",
+                    "protocol": "openid-connect",
+                    "protocolMapper": "oidc-usermodel-property-mapper",
+                    "consentRequired": false,
+                    "config": {
+                        "user.attribute": "username",
+                        "id.token.claim": "true",
+                        "access.token.claim": "true",
+                        "claim.name": "preferred_username",
+                        "userinfo.token.claim": "true"
+                    }
+                }
+            ]
+        },
+        {
+            "name": "groups",
+            "protocol": "openid-connect",
+            "protocolMappers": [
+                {
+                    "name": "groups",
+                    "protocol": "openid-connect",
+                    "protocolMapper": "oidc-group-membership-mapper",
+                    "consentRequired": false,
+                    "config": {
+                        "full.path": "false",
+                        "id.token.claim": "true",
+                        "access.token.claim": "true",
+                        "claim.name": "groups",
+                        "userinfo.token.claim": "true"
+                    }
+                }
+            ]
+        }
+    ],
+    "clients": [
+        {
+            "clientId": "kvmd-client",
+            "enabled": true,
+            "protocol": "openid-connect",
+            "publicClient": false,
+            "secret": "s3cret",
+            "standardFlowEnabled": true,
+            "directAccessGrantsEnabled": false,
+            "redirectUris": ["http://127.0.0.1:8124/api/auth/oidc/callback"],
+            "webOrigins": ["*"],
+            "defaultClientScopes": ["profile"],
+            "optionalClientScopes": ["groups"]
+        }
+    ],
+    "users": [
+        {
+            "username": "alice",
+            "enabled": true,
+            "emailVerified": true,
+            "credentials": [
+                {"type": "password", "value": "alice-pass", "temporary": false}
+            ],
+            "groups": ["/admins"]
+        },
+        {
+            "username": "bob",
+            "enabled": true,
+            "emailVerified": true,
+            "credentials": [
+                {"type": "password", "value": "bob-pass", "temporary": false}
+            ],
+            "groups": ["/operators"]
+        }
+    ]
+}

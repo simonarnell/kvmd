@@ -20,35 +20,19 @@
 # ========================================================================== #
 
 
-import dataclasses
+from typing import Any
+from urllib.parse import urlparse
 
-from .. import BasePlugin
-from .. import get_plugin_class
-
-
-# =====
-@dataclasses.dataclass(frozen=True)
-class AuthIdentity:
-    user:   str
-    groups: tuple[str, ...] = ()
-
-    def __post_init__(self) -> None:
-        assert self.user == self.user.strip()
-        assert self.user
+from . import add_validator_magic
+from . import check_not_none_string
+from . import raise_error
 
 
 # =====
-class BaseAuthService(BasePlugin):
-    async def authorize(self, user: str, passwd: str) -> (AuthIdentity | None):
-        raise NotImplementedError  # pragma: nocover
-
-    async def sysprep(self) -> None:
-        pass
-
-    async def cleanup(self) -> None:
-        pass
-
-
-# =====
-def get_auth_service_class(name: str) -> type[BaseAuthService]:
-    return get_plugin_class("auth", name)  # type: ignore
+@add_validator_magic
+def valid_oidc_url(arg: Any, name: str="OIDC URL") -> str:
+    arg = check_not_none_string(arg, name)
+    parsed = urlparse(arg)
+    if parsed.scheme not in ("http", "https") or not parsed.netloc:
+        raise_error(arg, name)
+    return arg

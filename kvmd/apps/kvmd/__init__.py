@@ -28,6 +28,7 @@ from .. import init
 
 from .auth import AuthManager
 from .authz import AuthzManager
+from .oidc import OidcManager
 from .info import InfoManager
 from .logreader import LogReader
 from .ugpio import UserGpio
@@ -87,6 +88,7 @@ def main() -> None:
 
             totp_secret_path=config.auth.totp.secret.file,
         ),
+        oidc=OidcManager(**config.oidc._unpack()),
         im=InfoManager(global_config),
         log_reader=(LogReader() if config.log_reader.enabled else None),
         ugpio=UserGpio(config.gpio),

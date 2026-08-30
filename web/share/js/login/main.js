@@ -47,8 +47,27 @@ export function main() {
 			}
 		};
 
+		tools.el.setOnClick($("login-oidc-button"), __loginOidc);
+		tools.httpGet("api/auth/oidc/config", null, function(http) {
+			if (http.status === 200) {
+				let enabled = false;
+				try {
+					enabled = JSON.parse(http.responseText)["result"]["enabled"];
+				} catch { /* Nah */ }
+				if (enabled) {
+					$("login-oidc-row").hidden = false;
+					$("login-oidc-row-2").hidden = false;
+				}
+			}
+		});
+
 		$("user-input").focus();
 	}
+}
+
+function __loginOidc(ev) {
+	ev.preventDefault();
+	tools.currentOpen("api/auth/oidc/login");
 }
 
 function __login() {

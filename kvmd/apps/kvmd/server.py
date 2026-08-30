@@ -64,6 +64,7 @@ from ...validators.kvm import valid_stream_h264_gop
 
 from .auth import AuthManager
 from .authz import AuthzManager
+from .oidc import OidcManager
 from .info import InfoManager
 from .logreader import LogReader
 from .ugpio import UserGpio
@@ -74,6 +75,7 @@ from .switch import Switch
 
 from .api.auth import AuthApi
 from .api.auth import check_request_auth
+from .api.oidc import OidcApi
 
 from .api.info import InfoApi
 from .api.log import LogApi
@@ -152,6 +154,7 @@ class KvmdServer(HttpServer):  # pylint: disable=too-many-arguments,too-many-ins
         self,
         auth: AuthManager,
         authz: AuthzManager,
+        oidc: OidcManager,
         im: InfoManager,
         log_reader: (LogReader | None),
         ugpio: UserGpio,
@@ -186,6 +189,7 @@ class KvmdServer(HttpServer):  # pylint: disable=too-many-arguments,too-many-ins
         self.__apis: list[object] = [
             self,
             AuthApi(auth, allow_redirects),
+            OidcApi(oidc, auth, allow_redirects),
             InfoApi(im),
             LogApi(log_reader),
             UserGpioApi(ugpio),
@@ -202,6 +206,7 @@ class KvmdServer(HttpServer):  # pylint: disable=too-many-arguments,too-many-ins
         self.__subsystems = [
             _Subsystem.make(auth,     "Auth"),
             _Subsystem.make(authz,    "Authz"),
+            _Subsystem.make(oidc,     "Oidc"),
             _Subsystem.make(ugpio,    "GPIO",     self.__EV_GPIO_STATE),
             _Subsystem.make(hid,      "HID",      self.__EV_HID_STATE),
             _Subsystem.make(atx,      "ATX",      self.__EV_ATX_STATE),

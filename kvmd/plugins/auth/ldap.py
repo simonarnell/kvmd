@@ -38,6 +38,7 @@ from ...logging import get_logger
 
 from ... import tools
 
+from . import AuthIdentity
 from . import BaseAuthService
 
 
@@ -64,10 +65,11 @@ class Plugin(BaseAuthService):
             "timeout":     Option(5, type=valid_int_f1),
         }
 
-    async def authorize(self, user: str, passwd: str) -> bool:
+    async def authorize(self, user: str, passwd: str) -> (AuthIdentity | None):
         return (await asyncio.to_thread(self.__inner_authorize, user, passwd))
 
-    def __inner_authorize(self, user: str, passwd: str) -> bool:
+    def __inner_authorize(self, user: str, passwd: str) -> (AuthIdentity | None):
+        orig_user = user
         if self.__user_domain:
             user = f"{user}@{self.__user_domain}"
 
@@ -102,8 +104,11 @@ class Plugin(BaseAuthService):
                     and isinstance(attrs["memberOf"], (list, dict))
                     and self.__group.encode() in attrs["memberOf"]
                 ):
-                    return True
-
+                    groups = tuple(sorted({
+                        (group.decode() if isinstance(group, bytes) else group)
+                        for group in attrs["memberOf"]
+                    }))
+                    return AuthIdentity(orig_user, groups=groups)
         except ldap.INVALID_CREDENTIALS:
             pass
         except ldap.SERVER_DOWN as ex:
@@ -116,4 +121,4 @@ class Plugin(BaseAuthService):
                     conn.unbind()
                 except Exception:
                     pass
-        return False
+        return None
