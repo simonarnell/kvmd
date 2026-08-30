@@ -34,11 +34,13 @@
 # authz decision -- i.e. they test that the wiring exists, not that the
 # policy is correct (that's the other suite's job).
 
+import json
+
 from typing import Any
 
 import pytest
 
-import kvmd.htserver as htserver
+from kvmd import htserver
 
 from kvmd.htserver import WsSession
 from kvmd.htserver import HttpExposed
@@ -47,6 +49,14 @@ from kvmd.htserver import _get_exposed_http  # pylint: disable=protected-access
 
 from kvmd.apps.kvmd.api.hid import HidApi
 from kvmd.apps.kvmd.api.auth import AuthApi
+from kvmd.apps.kvmd.api.switch import SwitchApi
+from kvmd.apps.kvmd.api.atx import AtxApi
+from kvmd.apps.kvmd.api.streamer import StreamerApi
+from kvmd.apps.kvmd.api.msd import MsdApi
+from kvmd.apps.kvmd.api.ugpio import UserGpioApi
+from kvmd.apps.kvmd.api.log import LogApi
+from kvmd.apps.kvmd.api.export import ExportApi
+from kvmd.apps.kvmd.api.janus import JanusApi
 from kvmd.apps.kvmd.server import KvmdServer
 
 
@@ -71,6 +81,9 @@ class _FakeSwitch:
     def get_active_port(self) -> int:
         return self.__active_port
 
+    def set_active_port(self, active_port: int) -> None:
+        self.__active_port = active_port
+
 
 class _FakeWsr:
     pass
@@ -88,13 +101,13 @@ async def test_ok__hid_ws_input_blocked_when_authz_denies() -> None:
     hid_api = HidApi(hid=None, keymap_path="/nonexistent/default", authz=authz, switch=switch)  # type: ignore[arg-type]
 
     sent = []
-    hid_api._HidApi__hid = type("FakeHid", (), {"send_key_event": staticmethod(lambda *a: sent.append(a))})()  # type: ignore
+    hid_api._HidApi__hid = type("FakeHid", (), {"send_key_event": staticmethod(lambda *a: sent.append(a))})()  # type: ignore  # pylint: disable=protected-access  # noqa vulture-ignore
 
     ws = _make_ws(user="bob", groups=("ops",), is_usc=False)
     handler = hid_api._HidApi__ws_key_handler  # type: ignore[attr-defined]  # pylint: disable=protected-access
     await handler(ws, {"key": "KeyA", "state": True})
 
-    assert sent == []  # blocked: the underlying HID action never fired
+    assert not sent  # blocked: the underlying HID action never fired
     assert authz.calls == [("bob", "hid", {"active_port": 1}, ("ops",))]
 
 
@@ -105,7 +118,7 @@ async def test_ok__hid_ws_input_allowed_when_authz_allows() -> None:
     hid_api = HidApi(hid=None, keymap_path="/nonexistent/default", authz=authz, switch=switch)  # type: ignore[arg-type]
 
     sent = []
-    hid_api._HidApi__hid = type("FakeHid", (), {"send_key_event": staticmethod(lambda *a: sent.append(a))})()  # type: ignore
+    hid_api._HidApi__hid = type("FakeHid", (), {"send_key_event": staticmethod(lambda *a: sent.append(a))})()  # type: ignore  # pylint: disable=protected-access  # noqa vulture-ignore
 
     ws = _make_ws(user="alice", groups=(), is_usc=False)
     handler = hid_api._HidApi__ws_key_handler  # type: ignore[attr-defined]  # pylint: disable=protected-access
@@ -121,14 +134,14 @@ async def test_ok__hid_ws_input_bypasses_authz_for_usc() -> None:
     hid_api = HidApi(hid=None, keymap_path="/nonexistent/default", authz=authz, switch=switch)  # type: ignore[arg-type]
 
     sent = []
-    hid_api._HidApi__hid = type("FakeHid", (), {"send_key_event": staticmethod(lambda *a: sent.append(a))})()  # type: ignore
+    hid_api._HidApi__hid = type("FakeHid", (), {"send_key_event": staticmethod(lambda *a: sent.append(a))})()  # type: ignore  # pylint: disable=protected-access  # noqa vulture-ignore
 
     ws = _make_ws(user="", groups=(), is_usc=True)  # USC connections carry no user, by design
     handler = hid_api._HidApi__ws_key_handler  # type: ignore[attr-defined]  # pylint: disable=protected-access
     await handler(ws, {"key": "KeyA", "state": True})
 
     assert len(sent) == 1  # USC bypasses authz entirely, same as everywhere else
-    assert authz.calls == []  # and OPA is never even consulted
+    assert not authz.calls  # and OPA is never even consulted
 
 
 @pytest.mark.asyncio
@@ -138,7 +151,7 @@ async def test_ok__hid_ws_authz_decision_cached_per_port() -> None:
     authz = _FakeAuthz(allow=True)
     switch = _FakeSwitch(active_port=1)
     hid_api = HidApi(hid=None, keymap_path="/nonexistent/default", authz=authz, switch=switch)  # type: ignore[arg-type]
-    hid_api._HidApi__hid = type("FakeHid", (), {"send_mouse_move_event": staticmethod(lambda *a: None)})()  # type: ignore
+    hid_api._HidApi__hid = type("FakeHid", (), {"send_mouse_move_event": staticmethod(lambda *a: None)})()  # type: ignore  # pylint: disable=protected-access  # noqa vulture-ignore
 
     ws = _make_ws(user="alice", groups=(), is_usc=False)
     handler = hid_api._HidApi__ws_mouse_move_handler  # type: ignore[attr-defined]  # pylint: disable=protected-access
@@ -147,7 +160,7 @@ async def test_ok__hid_ws_authz_decision_cached_per_port() -> None:
         await handler(ws, {"to": {"x": 100, "y": 100}})
     assert len(authz.calls) == 1  # same port every time -- cached after the first check
 
-    switch._FakeSwitch__active_port = 2  # type: ignore[attr-defined]  # pylint: disable=protected-access
+    switch.set_active_port(2)
     await handler(ws, {"to": {"x": 100, "y": 100}})
     assert len(authz.calls) == 2  # port changed -- cache invalidated, OPA re-consulted
 
@@ -179,16 +192,7 @@ async def test_ok__streamer_endpoint_calls_authz() -> None:
 # covered by the tests above, not by this static check).
 # =====
 
-def test_ok__expected_http_actions_are_still_wired() -> None:
-    from kvmd.apps.kvmd.api.switch import SwitchApi
-    from kvmd.apps.kvmd.api.atx import AtxApi
-    from kvmd.apps.kvmd.api.streamer import StreamerApi
-    from kvmd.apps.kvmd.api.msd import MsdApi
-    from kvmd.apps.kvmd.api.ugpio import UserGpioApi
-    from kvmd.apps.kvmd.api.log import LogApi
-    from kvmd.apps.kvmd.api.export import ExportApi
-    from kvmd.apps.kvmd.api.janus import JanusApi
-
+def test_ok__expected_http_actions_are_still_wired() -> None:  # pylint: disable=too-many-locals
     fake_authz = _FakeAuthz(allow=True)
     fake_switch = _FakeSwitch()
 
@@ -231,9 +235,6 @@ def test_ok__expected_http_actions_are_still_wired() -> None:
 # =====
 
 def test_ok__janus_strips_webcam_when_not_allowed() -> None:
-    import json
-    from kvmd.apps.kvmd.api.janus import JanusApi
-
     janus_api = JanusApi(authz=_FakeAuthz(allow=True), switch=_FakeSwitch(), unix_path="/nonexistent.sock", timeout=5.0)  # type: ignore[arg-type]
     strip = janus_api._JanusApi__maybe_strip_webcam  # type: ignore[attr-defined]  # pylint: disable=protected-access
 
@@ -248,10 +249,7 @@ def test_ok__janus_strips_webcam_when_not_allowed() -> None:
     assert stripped["body"]["params"]["audio"] is True  # view-direction untouched
 
 
-def test_ok__janus_passes_watch_through_unchanged_when_allowed() -> None:
-    import json
-    from kvmd.apps.kvmd.api.janus import JanusApi
-
+def test_ok__janus_passes_watch_unchanged_when_allowed() -> None:
     janus_api = JanusApi(authz=_FakeAuthz(allow=True), switch=_FakeSwitch(), unix_path="/nonexistent.sock", timeout=5.0)  # type: ignore[arg-type]
     strip = janus_api._JanusApi__maybe_strip_webcam  # type: ignore[attr-defined]  # pylint: disable=protected-access
 
@@ -263,8 +261,6 @@ def test_ok__janus_passes_watch_through_unchanged_when_allowed() -> None:
 
 
 def test_ok__janus_leaves_non_watch_messages_untouched() -> None:
-    from kvmd.apps.kvmd.api.janus import JanusApi
-
     janus_api = JanusApi(authz=_FakeAuthz(allow=True), switch=_FakeSwitch(), unix_path="/nonexistent.sock", timeout=5.0)  # type: ignore[arg-type]
     strip = janus_api._JanusApi__maybe_strip_webcam  # type: ignore[attr-defined]  # pylint: disable=protected-access
 
@@ -273,9 +269,7 @@ def test_ok__janus_leaves_non_watch_messages_untouched() -> None:
 
 
 @pytest.mark.asyncio
-async def test_ok__janus_connect_denies_webcam_permission_separately_from_streamer_view() -> None:
-    from kvmd.apps.kvmd.api.janus import JanusApi
-
+async def test_ok__janus_webcam_denied_independent_of_view() -> None:
     authz = _FakeAuthz(allow=False)  # denies everything, including "webcam"
     switch = _FakeSwitch(active_port=1)
     janus_api = JanusApi(authz=authz, switch=switch, unix_path="/nonexistent.sock", timeout=5.0)  # type: ignore[arg-type]
@@ -323,7 +317,7 @@ def _make_authz_checked_req(*, user: str, groups: tuple, is_usc: bool = False) -
 
 
 class _NoAuthRequired:
-    def is_auth_required(self, exposed: HttpExposed) -> bool:
+    def is_auth_required(self, _exposed: HttpExposed) -> bool:
         return False  # skip AuthN entirely -- this test is only about the authz half
 
 
@@ -331,9 +325,9 @@ class _FakeKvmdServerSelf:
     """Duck-types just the two attributes _check_request_auth actually reads."""
 
     def __init__(self, authz: _FakeAuthz, switch: _FakeSwitch) -> None:
-        self._KvmdServer__auth = _NoAuthRequired()  # pylint: disable=invalid-name
-        self._KvmdServer__authz = authz  # pylint: disable=invalid-name
-        self._KvmdServer__switch = switch  # pylint: disable=invalid-name
+        self._KvmdServer__auth = _NoAuthRequired()  # pylint: disable=invalid-name  # noqa vulture-ignore
+        self._KvmdServer__authz = authz  # pylint: disable=invalid-name  # noqa vulture-ignore
+        self._KvmdServer__switch = switch  # pylint: disable=invalid-name  # noqa vulture-ignore
 
 
 _MSD_ADD_EXPOSED = HttpExposed(
@@ -349,7 +343,7 @@ async def test_ok__generic_mechanism_blocks_when_authz_denies() -> None:
     req = _make_authz_checked_req(user="carol", groups=("viewers",))
 
     with pytest.raises(ForbiddenError):
-        await KvmdServer._check_request_auth(fake_self, _MSD_ADD_EXPOSED, req)  # type: ignore[arg-type]
+        await KvmdServer._check_request_auth(fake_self, _MSD_ADD_EXPOSED, req)  # type: ignore[arg-type]  # pylint: disable=protected-access
     assert authz.calls == [("carol", "msd.add", {"active_port": 2}, ("viewers",))]
 
 
@@ -360,7 +354,7 @@ async def test_ok__generic_mechanism_allows_when_authz_allows() -> None:
     fake_self = _FakeKvmdServerSelf(authz, switch)
     req = _make_authz_checked_req(user="bob", groups=("operators",))
 
-    await KvmdServer._check_request_auth(fake_self, _MSD_ADD_EXPOSED, req)  # type: ignore[arg-type]  # must not raise
+    await KvmdServer._check_request_auth(fake_self, _MSD_ADD_EXPOSED, req)  # type: ignore[arg-type]  # pylint: disable=protected-access  # must not raise
     assert authz.calls == [("bob", "msd.add", {"active_port": 2}, ("operators",))]
 
 
@@ -371,5 +365,5 @@ async def test_ok__generic_mechanism_bypasses_authz_for_usc() -> None:
     fake_self = _FakeKvmdServerSelf(authz, switch)
     req = _make_authz_checked_req(user="", groups=(), is_usc=True)
 
-    await KvmdServer._check_request_auth(fake_self, _MSD_ADD_EXPOSED, req)  # type: ignore[arg-type]  # must not raise
-    assert authz.calls == []  # USC bypasses the authz.check() call entirely
+    await KvmdServer._check_request_auth(fake_self, _MSD_ADD_EXPOSED, req)  # type: ignore[arg-type]  # pylint: disable=protected-access  # must not raise
+    assert not authz.calls  # USC bypasses the authz.check() call entirely

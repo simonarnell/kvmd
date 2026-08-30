@@ -29,7 +29,7 @@ from . import raise_error
 
 
 # =====
-@add_validator_magic
+@add_validator_magic(4096)
 def valid_oidc_url(arg: Any, name: str="OIDC URL") -> str:
     arg = check_not_none_string(arg, name)
     parsed = urlparse(arg)

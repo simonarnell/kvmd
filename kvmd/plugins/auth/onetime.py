@@ -40,6 +40,7 @@ from ...logging import get_logger
 
 from ... import tools
 
+from . import AuthIdentity
 from . import BaseAuthService
 
 
@@ -77,12 +78,12 @@ class Plugin(BaseAuthService):
         except Exception as ex:
             get_logger(0).info("Can't remove credentials file %s: %s", self.__path, tools.efmt(ex))
 
-    async def authorize(self, user: str, passwd: str) -> bool:
+    async def authorize(self, user: str, passwd: str) -> (AuthIdentity | None):
         assert len(self.__passwd) == self.__passwd_len
         ok = ((user == self.__user) and (passwd == self.__passwd))
         if ok and self.__change_after_login:
             self.__regen_passwd()
-        return ok
+        return (AuthIdentity(user) if ok else None)
 
     def __regen_passwd(self) -> None:
         logger = get_logger(0)

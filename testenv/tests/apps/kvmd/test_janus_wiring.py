@@ -42,7 +42,7 @@ import pytest_asyncio
 
 from aiohttp import web
 
-import kvmd.htserver as htserver
+from kvmd import htserver
 
 from kvmd.apps.kvmd.api.janus import JanusApi
 
@@ -104,7 +104,7 @@ def _auth_middleware(user: str, groups: tuple[str, ...]) -> Any:
     return middleware
 
 
-@pytest_asyncio.fixture(name="backend")
+@pytest_asyncio.fixture(name="backend")  # noqa vulture-ignore
 async def _backend_fixture() -> AsyncGenerator[_FakeJanusBackend]:
     backend = _FakeJanusBackend()
     await backend.start()
@@ -164,7 +164,7 @@ async def test_ok__janus_relay_strips_webcam_over_the_wire(aiohttp_client: Any, 
 
 
 @pytest.mark.asyncio
-async def test_ok__janus_relay_passes_webcam_through_when_allowed(aiohttp_client: Any, backend: _FakeJanusBackend) -> None:
+async def test_ok__janus_relay_passes_webcam_when_allowed(aiohttp_client: Any, backend: _FakeJanusBackend) -> None:
     received = await _drive_watch_request(aiohttp_client, backend, webcam_allowed=True)
     params = received["body"]["params"]
     assert params["mic"] is True
@@ -173,7 +173,7 @@ async def test_ok__janus_relay_passes_webcam_through_when_allowed(aiohttp_client
 
 
 @pytest.mark.asyncio
-async def test_ok__janus_relay_passes_non_watch_messages_through_unchanged(aiohttp_client: Any, backend: _FakeJanusBackend) -> None:
+async def test_ok__janus_relay_passes_non_watch_unchanged(aiohttp_client: Any, backend: _FakeJanusBackend) -> None:
     authz = _FakeAuthz(allow=False)
     janus_api = JanusApi(authz=authz, switch=_FakeSwitch(), unix_path=backend.socket_path, timeout=5.0)  # type: ignore[arg-type]
 

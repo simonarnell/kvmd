@@ -382,7 +382,7 @@ class _GroupsAuthManager(AuthManager):
 
 
 @pytest.mark.asyncio
-async def test_ok__groups_reach_the_request_on_every_auth_channel() -> None:
+async def test_ok__groups_reach_request_every_auth_channel() -> None:
     # Regression test: xhdr and basic auth used to call AuthManager.authorize(),
     # which discards the AuthIdentity down to a bool and never touched groups.
     # Any backend that carries real group data (LDAP's memberOf, in practice)

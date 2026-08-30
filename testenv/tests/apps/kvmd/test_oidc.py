@@ -27,20 +27,27 @@
 # testcontainers-based Keycloak suite.
 
 import contextlib
+import logging
 import time
 
 from typing import Any
 from typing import AsyncGenerator
+from urllib.parse import urlparse
+from urllib.parse import parse_qs
 
 from aiohttp import web
+from aiohttp.test_utils import make_mocked_request
 
 import pytest
 
 from authlib.jose import JsonWebKey
 from authlib.jose import jwt as jose_jwt
 
+from kvmd.htserver import ForbiddenError
+
 from kvmd.apps.kvmd.oidc import OidcManager
 from kvmd.apps.kvmd.oidc import OidcError
+from kvmd.apps.kvmd.api.oidc import OidcApi
 
 from kvmd.plugins.auth import AuthIdentity
 
@@ -139,8 +146,6 @@ async def _manager(aiohttp_server: Any) -> AsyncGenerator[tuple[OidcManager, dic
 
 
 def _extract_state_and_nonce(url: str) -> tuple[str, str]:
-    from urllib.parse import urlparse
-    from urllib.parse import parse_qs
     qs = parse_qs(urlparse(url).query)
     return (qs["state"][0], qs["nonce"][0])
 
@@ -169,7 +174,6 @@ async def test_ok__debug_tracing_covers_the_kid_diagnostic(aiohttp_server: Any, 
     # The single highest-value debug trace: kid mismatches between the
     # id_token and the cached JWKS are the most common real-world OIDC
     # misconfiguration, and the only way to see it is to log both sides.
-    import logging
     caplog.set_level(logging.DEBUG, logger="kvmd.apps.kvmd.oidc")
 
     async with _manager(aiohttp_server) as (mgr, nonces, _overrides):
@@ -291,11 +295,6 @@ class _FakeOidcManagerEnabled:
 
 @pytest.mark.asyncio
 async def test_fail__idp_error_param_is_logged(caplog: Any) -> None:
-    from aiohttp.test_utils import make_mocked_request
-
-    from kvmd.apps.kvmd.api.oidc import OidcApi
-    from kvmd.htserver import ForbiddenError
-
     api = OidcApi(oidc=_FakeOidcManagerEnabled(), auth=None, allow_redirects=[])  # type: ignore[arg-type]
     handler = api._OidcApi__callback_handler  # type: ignore[attr-defined]  # pylint: disable=protected-access
 
@@ -307,11 +306,6 @@ async def test_fail__idp_error_param_is_logged(caplog: Any) -> None:
 
 @pytest.mark.asyncio
 async def test_fail__missing_code_or_state_is_logged(caplog: Any) -> None:
-    from aiohttp.test_utils import make_mocked_request
-
-    from kvmd.apps.kvmd.api.oidc import OidcApi
-    from kvmd.htserver import ForbiddenError
-
     api = OidcApi(oidc=_FakeOidcManagerEnabled(), auth=None, allow_redirects=[])  # type: ignore[arg-type]
     handler = api._OidcApi__callback_handler  # type: ignore[attr-defined]  # pylint: disable=protected-access
 

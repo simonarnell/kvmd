@@ -92,7 +92,7 @@ class OidcApi:
         token = await self.__auth.login_external(identity, expire=0)
 
         if redirect:
-            ex = HTTPFound(location=redirect)
-            ex.set_cookie(_COOKIE_AUTH_TOKEN, token, httponly=True, samesite="Strict")
-            raise ex
+            resp = HTTPFound(location=redirect)
+            resp.set_cookie(_COOKIE_AUTH_TOKEN, token, httponly=True, samesite="Strict")
+            raise resp
         return make_json_response(set_cookies={_COOKIE_AUTH_TOKEN: token})

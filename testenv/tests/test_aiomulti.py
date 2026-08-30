@@ -35,7 +35,7 @@ from kvmd.aiomulti import AioMpProcess
 # platform where fork() isn't the default (e.g. macOS) risks crashing the
 # interpreter rather than just failing the test. Both are properties of the
 # target platform, not of these tests, so skip outright off Linux.
-pytestmark = pytest.mark.skipif(sys.platform != "linux", reason="AioMpProcess requires Linux (os.pidfd_open) and safe fork() semantics")
+pytestmark = pytest.mark.skipif(sys.platform != "linux", reason="AioMpProcess requires Linux (os.pidfd_open) and safe fork() semantics")  # noqa vulture-ignore
 
 
 # =====

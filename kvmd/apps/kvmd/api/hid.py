@@ -94,8 +94,8 @@ class HidApi:
         if not user:
             return False
 
-        active_port = self.__switch.get_active_port()  # -1 = no port active
-        active_port = (active_port if active_port >= 0 else None)
+        raw_active_port = self.__switch.get_active_port()  # -1 = no port active
+        active_port: (int | None) = (raw_active_port if raw_active_port >= 0 else None)
 
         # Re-checking OPA on every single HID message (a mouse move can fire
         # dozens of times a second) would add real latency to interactive
