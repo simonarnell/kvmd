@@ -1,24 +1,12 @@
 # OIDC Authentication
 
-kvmd can authenticate users against any standards-compliant [OpenID
-Connect](https://openid.net/specs/openid-connect-core-1_0.html) (OIDC)
-identity provider (IdP), as an alternative — or complement — to the
-built-in `htpasswd`/LDAP/RADIUS/PAM login backends. This is a pure
-Authentication (AuthN) feature: it establishes *who* a user is and what
-groups they belong to. Combined with the [AuthZ model](authz.md), those
-group memberships can also drive *what* a user is allowed to do.
+kvmd can authenticate users against any standards-compliant [OpenID Connect](https://openid.net/specs/openid-connect-core-1_0.html) (OIDC) identity provider (IdP), as an alternative — or complement — to the built-in `htpasswd`/LDAP/RADIUS/PAM login backends. This is a pure Authentication (AuthN) feature: it establishes *who* a user is and what groups they belong to. Combined with the [AuthZ model](authz.md), those group memberships can also drive *what* a user is allowed to do.
 
-This guide is provider-agnostic. It has been verified end-to-end against
-[Keycloak](https://www.keycloak.org/), but nothing in kvmd's implementation
-is Keycloak-specific — any provider that implements OIDC Discovery,
-Authorization Code + PKCE, and standard ID tokens works identically (Okta,
-Auth0, Azure AD / Entra ID, Authentik, ZITADEL, Google Workspace, etc.).
+This guide is provider-agnostic. It has been verified end-to-end against [Keycloak](https://www.keycloak.org/), but nothing in kvmd's implementation is Keycloak-specific — any provider that implements OIDC Discovery, Authorization Code + PKCE, and standard ID tokens works identically (Okta, Auth0, Azure AD / Entra ID, Authentik, ZITADEL, Google Workspace, etc.).
 
 ## How it works
 
-kvmd never sees a user's password. Instead, the browser is redirected to
-your IdP, the user authenticates there, and the IdP redirects back with a
-short-lived authorization code that kvmd exchanges for an ID token.
+kvmd never sees a user's password. Instead, the browser is redirected to your IdP, the user authenticates there, and the IdP redirects back with a short-lived authorization code that kvmd exchanges for an ID token.
 
 ```
  browser                          kvmd                          your IdP
@@ -46,56 +34,33 @@ short-lived authorization code that kvmd exchanges for an ID token.
     │◄─────────────────────────────┤                                │
 ```
 
-The `state` parameter is single-use and expires after 5 minutes; the PKCE
-`code_verifier` never leaves kvmd. The ID token's signature, issuer,
-audience, expiry, and `nonce` are all verified before a session is created
-— an IdP error (e.g. `invalid_scope`, a rejected login) or a token that
-fails validation results in a `403`, never a silent fallback to
-authenticated.
+The `state` parameter is single-use and expires after 5 minutes; the PKCE `code_verifier` never leaves kvmd. The ID token's signature, issuer, audience, expiry, and `nonce` are all verified before a session is created — an IdP error (e.g. `invalid_scope`, a rejected login) or a token that fails validation results in a `403`, never a silent fallback to authenticated.
 
-Once validated, kvmd extracts a username and (optionally) a list of group
-names from the token's claims, and mints a normal kvmd session — from that
-point on an OIDC-authenticated session behaves exactly like a
-password-authenticated one (same cookie, same expiry rules, same
-WebSocket-keepalive extension).
+Once validated, kvmd extracts a username and (optionally) a list of group names from the token's claims, and mints a normal kvmd session — from that point on an OIDC-authenticated session behaves exactly like a password-authenticated one (same cookie, same expiry rules, same WebSocket-keepalive extension).
 
 ## Requirements on your IdP
 
 kvmd needs, at minimum:
 
-- **OIDC Discovery** — a `/.well-known/openid-configuration` document at
-  your issuer URL, from which kvmd learns the authorization, token, and
-  JWKS endpoints.
-- **Authorization Code flow with PKCE** (`response_type=code`,
-  `code_challenge_method=S256`). kvmd does not support the implicit flow
-  or the resource owner password flow.
-- A **confidential client** — kvmd holds a client secret and authenticates
-  itself at the token endpoint (`client_secret` grant). Public/SPA-style
-  clients are not supported since kvmd's OIDC exchange happens
-  server-side.
-- The **`openid`** scope at minimum; `profile` for the username claim (most
-  providers only expose `preferred_username` under that scope); a scope
-  that carries group membership, if you want IdP groups to drive access —
-  see [Claims mapping](#claims-mapping) below.
+- **OIDC Discovery** — a `/.well-known/openid-configuration` document at your issuer URL, from which kvmd learns the authorization, token, and JWKS endpoints.
+- **Authorization Code flow with PKCE** (`response_type=code`, `code_challenge_method=S256`). kvmd does not support the implicit flow or the resource owner password flow.
+- A **confidential client** — kvmd holds a client secret and authenticates itself at the token endpoint (`client_secret` grant). Public/SPA-style clients are not supported since kvmd's OIDC exchange happens server-side.
+- The **`openid`** scope at minimum; `profile` for the username claim (most providers only expose `preferred_username` under that scope); a scope that carries group membership, if you want IdP groups to drive access — see [Claims mapping](#claims-mapping) below.
 
 ## Registering kvmd as a client
 
 Exact steps vary by provider, but you are always creating:
 
-1. A **confidential** OIDC client (sometimes called "Web Application" or
-   "Server-side application").
+1. A **confidential** OIDC client (sometimes called "Web Application" or "Server-side application").
 2. A **redirect URI** (sometimes "callback URL") of exactly:
 
    ```
    https://<your-pikvm-hostname>/api/auth/oidc/callback
    ```
 
-   This must match `kvmd.oidc.redirect_uri` below *exactly*, including
-   scheme and trailing-slash-or-not — most providers reject a mismatch
-   outright.
+   This must match `kvmd.oidc.redirect_uri` below *exactly*, including scheme and trailing-slash-or-not — most providers reject a mismatch outright.
 3. A **client secret**, generated by the provider.
-4. If your provider supports scope-gated claims (most do), a scope that
-   includes group membership as a claim — see below.
+4. If your provider supports scope-gated claims (most do), a scope that includes group membership as a claim — see below.
 
 ## Configuration
 
@@ -114,19 +79,11 @@ All options live under `kvmd.oidc` in `/etc/kvmd/override.yaml`:
 | `verify_ssl` | `true` | Verify the IdP's TLS certificate. Only disable for local testing against a self-signed cert. |
 | `timeout` | `5.0` | Timeout (seconds) for discovery/JWKS/token-exchange HTTP calls to the IdP. |
 
-The **username produced by kvmd must match the regex `^[a-z_][a-z0-9_-]*$`**
-(lowercase, starting with a letter or underscore) — the same constraint
-that applies to every kvmd username regardless of auth backend. If your
-IdP's `preferred_username`/`email`/`upn` claim contains uppercase letters,
-dots, or an `@domain` suffix, map a different claim, or configure your IdP
-to emit a claim that already matches (many providers let you add a custom
-claim mapper for exactly this).
+The **username produced by kvmd must match the regex `^[a-z_][a-z0-9_-]*$`** (lowercase, starting with a letter or underscore) — the same constraint that applies to every kvmd username regardless of auth backend. If your IdP's `preferred_username`/`email`/`upn` claim contains uppercase letters, dots, or an `@domain` suffix, map a different claim, or configure your IdP to emit a claim that already matches (many providers let you add a custom claim mapper for exactly this).
 
 ### Worked example
 
-A generic confidential client called `kvmd-client`, issuer
-`https://idp.example.com/realms/pikvm`, with a `groups` scope configured
-at the IdP to emit group membership:
+A generic confidential client called `kvmd-client`, issuer `https://idp.example.com/realms/pikvm`, with a `groups` scope configured at the IdP to emit group membership:
 
 ```yaml
 # /etc/kvmd/override.yaml
@@ -143,14 +100,11 @@ kvmd:
         verify_ssl: true
 ```
 
-After applying this (`systemctl restart kvmd`), the login page at
-`https://pikvm.example.com/login/` shows a "Sign in with SSO" link below
-the password form. Clicking it starts the flow above.
+After applying this (`systemctl restart kvmd`), the login page at `https://pikvm.example.com/login/` shows a "Sign in with SSO" link below the password form. Clicking it starts the flow above.
 
 ## Claims mapping
 
-Different providers expose group membership under different claim names,
-and not always under a scope called `groups`:
+Different providers expose group membership under different claim names, and not always under a scope called `groups`:
 
 | Provider family | Typical group scope/claim | Notes |
 |---|---|---|
@@ -160,40 +114,24 @@ and not always under a scope called `groups`:
 | Auth0 | Custom claim via a Rule/Action (namespaced, e.g. `https://kvmd/groups`) | Auth0 does not emit a `groups` claim natively; you add one. |
 | Generic / custom IdP | Whatever your provider calls it | Set `groups_claim` to match. |
 
-Whatever claim your provider ultimately emits, point `groups_claim` (and
-`username_claim`, if you're not using `preferred_username`) at it. If your
-provider namespaces custom claims (Auth0's `https://kvmd/groups` pattern),
-set `groups_claim` to that full string — kvmd reads it as a flat key on the
-top-level claims object, not a nested path.
+Whatever claim your provider ultimately emits, point `groups_claim` (and `username_claim`, if you're not using `preferred_username`) at it. If your provider namespaces custom claims (Auth0's `https://kvmd/groups` pattern), set `groups_claim` to that full string — kvmd reads it as a flat key on the top-level claims object, not a nested path.
 
-If you don't need group-based authz at all, drop the group scope from
-`scopes` and leave `groups_claim` at its default — kvmd will simply find
-no groups in the token and every OIDC user falls back to whatever a static
-per-user authz entry grants them (or nothing, if none exists).
+If you don't need group-based authz at all, drop the group scope from `scopes` and leave `groups_claim` at its default — kvmd will simply find no groups in the token and every OIDC user falls back to whatever a static per-user authz entry grants them (or nothing, if none exists).
 
 ## Security notes
 
-- **PKCE, state, and nonce are mandatory** and handled entirely
-  server-side — there's no configuration surface here because there's
-  nothing to misconfigure.
-- **`state` is single-use** with a 5-minute TTL; replaying a callback URL
-  a second time is rejected.
-- **ID token validation checks signature (against the IdP's JWKS,
-  refetched automatically if an unrecognized key ID is seen — i.e. after
-  key rotation), issuer, audience, expiry, and nonce.** A token that fails
-  any of these is rejected outright.
-- **No fallback to authenticated on IdP or network error.** If the IdP is
-  unreachable, returns an error, or the token fails validation, the
-  callback returns `403` — never a silent allow.
-- Session cookies minted by the OIDC flow carry `HttpOnly` and
-  `SameSite=Strict`, identical to password-based logins.
+- **PKCE, state, and nonce are mandatory** and handled entirely server-side — there's no configuration surface here because there's nothing to misconfigure.
+- **`state` is single-use** with a 5-minute TTL; replaying a callback URL a second time is rejected.
+- **ID token validation checks signature (against the IdP's JWKS, refetched automatically if an unrecognised key ID is seen — i.e. after key rotation), issuer, audience, expiry, and nonce.** A token that fails any of these is rejected outright.
+- **No fallback to authenticated on IdP or network error.** If the IdP is unreachable, returns an error, or the token fails validation, the callback returns `403` — never a silent allow.
+- Session cookies minted by the OIDC flow carry `HttpOnly` and `SameSite=Strict`, identical to password-based logins.
 - kvmd itself never receives or stores the user's IdP password.
 
 ## Troubleshooting
 
 | Symptom | Likely cause |
 |---|---|
-| `invalid_scope` error at the IdP, before you even see a login form | A scope in `kvmd.oidc.scopes` isn't recognized by your IdP/realm — most commonly the `groups` scope hasn't been created and assigned to the client yet. Drop it or create it (see [Claims mapping](#claims-mapping)). |
+| `invalid_scope` error at the IdP, before you even see a login form | A scope in `kvmd.oidc.scopes` isn't recognised by your IdP/realm — most commonly the `groups` scope hasn't been created and assigned to the client yet. Drop it or create it (see [Claims mapping](#claims-mapping)). |
 | Redirect back to kvmd lands on a `403` immediately after IdP login | Check kvmd's logs (`journalctl -u kvmd`) for the specific rejection reason — usually a `redirect_uri` mismatch, an expired/replayed `state`, or a clock-skew issue between kvmd and the IdP (`nonce`/`exp` checks use a 60-second leeway). |
 | "Sign in with SSO" button never appears | `kvmd.oidc.enabled` is `false`, or the page's fetch of `/api/auth/oidc/config` is failing — check the browser console. |
 | Logged in, but landed with no meaningful permissions | The user has no matching role — either add a static per-user entry in the authz bundle, or map their IdP group via `group_roles`. See [AuthZ: group-derived roles](authz.md#group-derived-roles). |
@@ -201,6 +139,4 @@ per-user authz entry grants them (or nothing, if none exists).
 
 ## See also
 
-- [AuthZ model configuration](authz.md) — how to turn OIDC group
-  membership (or any other authenticated identity) into actual permissions
-  via OPA.
+- [AuthZ model configuration](authz.md) — how to turn OIDC group membership (or any other authenticated identity) into actual permissions via OPA.
