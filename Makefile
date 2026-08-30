@@ -50,7 +50,8 @@ all:
 	@ echo "    make bump             # Bump minor version"
 	@ echo "    make bump V=major     # Bump major version"
 	@ echo "    make release          # Publish the new release (include bump minor)"
-	@ echo "    make authz-test        # Run Docker-based authz policy integration tests"
+	@ echo "    make authz-test        # Run testcontainers-based authz OPA policy tests"
+	@ echo "    make authz-device-test # Run authz tests against a real PiKVM (needs KVMD_BASE etc.)"
 	@ echo "    make clean            # Remove garbage"
 	@ echo "    make clean-all        # Remove garbage and test results"
 	@ echo
@@ -83,10 +84,17 @@ testenv:
 
 
 authz-test:
-	$(DOCKER) compose \
-			$(if $(call -optbool,$(NC)),--no-cache,) \
-			-f testenv/authz-tests/docker-compose.yml \
-		up --build --abort-on-container-exit --exit-code-from tests
+	python3 -m venv venv
+	venv/bin/pip install -q -r testenv/authz-tests/requirements.txt
+	venv/bin/pytest testenv/authz-tests/test_policy.py -v
+
+
+# Requires KVMD_BASE (and friends — see testenv/authz-tests/hardware/test_device.py)
+# pointing at a real, deployed PiKVM. Not run in CI.
+authz-device-test:
+	python3 -m venv venv
+	venv/bin/pip install -q -r testenv/authz-tests/requirements.txt
+	venv/bin/pytest testenv/authz-tests/hardware/test_device.py -v
 
 
 tox: testenv
