@@ -43,6 +43,7 @@ REQUIRED_FILES=(
     kvmd/apps/kvmd/server.py
     kvmd/apps/kvmd/api/auth.py
     kvmd/apps/kvmd/api/switch.py
+    kvmd/apps/kvmd/api/hid.py
     kvmd/apps/kvmd/switch/__init__.py
     kvmd/apps/kvmd/switch/state.py
     kvmd/htserver.py
@@ -98,6 +99,7 @@ declare -a PY_FILES=(
     "kvmd/apps/kvmd/server.py:${SITE_PKG}/kvmd/apps/kvmd/server.py"
     "kvmd/apps/kvmd/api/auth.py:${SITE_PKG}/kvmd/apps/kvmd/api/auth.py"
     "kvmd/apps/kvmd/api/switch.py:${SITE_PKG}/kvmd/apps/kvmd/api/switch.py"
+    "kvmd/apps/kvmd/api/hid.py:${SITE_PKG}/kvmd/apps/kvmd/api/hid.py"
     "kvmd/apps/kvmd/switch/__init__.py:${SITE_PKG}/kvmd/apps/kvmd/switch/__init__.py"
     "kvmd/apps/kvmd/switch/state.py:${SITE_PKG}/kvmd/apps/kvmd/switch/state.py"
     "kvmd/htserver.py:${SITE_PKG}/kvmd/htserver.py"

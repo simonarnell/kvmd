@@ -47,6 +47,9 @@ from ....htserver import WsSession
 
 from ....plugins.hid import BaseHid
 
+from ..switch import Switch
+from ..authz import AuthzManager
+
 from ....validators import raise_error
 from ....validators.basic import valid_bool
 from ....validators.basic import valid_number
@@ -67,12 +70,46 @@ class HidApi:
         self,
         hid: BaseHid,
         keymap_path: str,
+        authz: AuthzManager,
+        switch: Switch,
     ) -> None:
 
         self.__hid = hid
+        self.__authz = authz
+        self.__switch = switch
 
         self.__keymaps_dir_path = os.path.dirname(keymap_path)
         self.__default_kn = os.path.basename(keymap_path)
+
+    # =====
+
+    async def __check_hid_allowed(self, ws: WsSession) -> bool:
+        # USC (local system tools) bypass authz entirely, same as everywhere
+        # else authz is enforced -- matches server.py's coarse HTTP check
+        # and api/switch.py's manual one.
+        if ws.kwargs.get("is_usc"):
+            return True
+
+        user = ws.kwargs.get("user", "")
+        if not user:
+            return False
+
+        active_port = self.__switch.get_active_port()  # -1 = no port active
+        active_port = (active_port if active_port >= 0 else None)
+
+        # Re-checking OPA on every single HID message (a mouse move can fire
+        # dozens of times a second) would add real latency to interactive
+        # control. The decision only actually depends on the active port, so
+        # cache it per-connection and only recompute when the port changes.
+        cache = ws.kwargs.get("_hid_authz_cache")
+        if cache is None or cache["port"] != active_port:
+            allowed = (await self.__authz.check(
+                user, "hid", {"active_port": active_port},
+                groups=ws.kwargs.get("groups", ()),
+            ))
+            cache = {"port": active_port, "allowed": allowed}
+            ws.kwargs["_hid_authz_cache"] = cache
+        return cache["allowed"]
 
     # =====
 
@@ -132,7 +169,7 @@ class HidApi:
     async def __keymaps_handler(self, _: Request) -> Response:
         return make_json_response(await self.get_keymaps())
 
-    @exposed_http("POST", "/hid/print")
+    @exposed_http("POST", "/hid/print", permission="hid")
     async def __print_handler(self, req: Request) -> Response:
         text = await req.text()
         limit = valid_int_f0(req.query.get("limit", 1024))
@@ -173,7 +210,9 @@ class HidApi:
     # =====
 
     @exposed_ws(1)
-    async def __ws_bin_key_handler(self, _: WsSession, data: bytes) -> None:
+    async def __ws_bin_key_handler(self, ws: WsSession, data: bytes) -> None:
+        if not (await self.__check_hid_allowed(ws)):
+            return
         try:
             state = bool(data[0] & 0b01)
             finish = bool(data[0] & 0b10)
@@ -186,7 +225,9 @@ class HidApi:
         self.__hid.send_key_event(key, state, finish)
 
     @exposed_ws(2)
-    async def __ws_bin_mouse_button_handler(self, _: WsSession, data: bytes) -> None:
+    async def __ws_bin_mouse_button_handler(self, ws: WsSession, data: bytes) -> None:
+        if not (await self.__check_hid_allowed(ws)):
+            return
         try:
             state = bool(data[0] & 0b01)
             if data[0] & 0b10000000:
@@ -199,7 +240,9 @@ class HidApi:
         self.__hid.send_mouse_button_event(button, state)
 
     @exposed_ws(3)
-    async def __ws_bin_mouse_move_handler(self, _: WsSession, data: bytes) -> None:
+    async def __ws_bin_mouse_move_handler(self, ws: WsSession, data: bytes) -> None:
+        if not (await self.__check_hid_allowed(ws)):
+            return
         try:
             (to_x, to_y) = struct.unpack(">hh", data)
             to_x = valid_hid_mouse_move(to_x)
@@ -209,14 +252,18 @@ class HidApi:
         self.__hid.send_mouse_move_event(to_x, to_y)
 
     @exposed_ws(4)
-    async def __ws_bin_mouse_relative_handler(self, _: WsSession, data: bytes) -> None:
-        self.__process_ws_bin_delta_request(data, self.__hid.send_mouse_relative_events)
+    async def __ws_bin_mouse_relative_handler(self, ws: WsSession, data: bytes) -> None:
+        await self.__process_ws_bin_delta_request(ws, data, self.__hid.send_mouse_relative_events)
 
     @exposed_ws(5)
-    async def __ws_bin_mouse_wheel_handler(self, _: WsSession, data: bytes) -> None:
-        self.__process_ws_bin_delta_request(data, self.__hid.send_mouse_wheel_events)
+    async def __ws_bin_mouse_wheel_handler(self, ws: WsSession, data: bytes) -> None:
+        await self.__process_ws_bin_delta_request(ws, data, self.__hid.send_mouse_wheel_events)
 
-    def __process_ws_bin_delta_request(self, data: bytes, handler: Callable[[Iterable[tuple[int, int]], bool], None]) -> None:
+    async def __process_ws_bin_delta_request(
+        self, ws: WsSession, data: bytes, handler: Callable[[Iterable[tuple[int, int]], bool], None],
+    ) -> None:
+        if not (await self.__check_hid_allowed(ws)):
+            return
         try:
             squash = bool(data[0] & 0b01)
             data = data[1:]
@@ -231,7 +278,9 @@ class HidApi:
     # =====
 
     @exposed_ws("key")
-    async def __ws_key_handler(self, _: WsSession, event: dict) -> None:
+    async def __ws_key_handler(self, ws: WsSession, event: dict) -> None:
+        if not (await self.__check_hid_allowed(ws)):
+            return
         try:
             key = WEB_TO_EVDEV[valid_hid_key(event["key"])]
             state = valid_bool(event["state"])
@@ -241,7 +290,9 @@ class HidApi:
         self.__hid.send_key_event(key, state, finish)
 
     @exposed_ws("mouse_button")
-    async def __ws_mouse_button_handler(self, _: WsSession, event: dict) -> None:
+    async def __ws_mouse_button_handler(self, ws: WsSession, event: dict) -> None:
+        if not (await self.__check_hid_allowed(ws)):
+            return
         try:
             button = MOUSE_TO_EVDEV[valid_hid_mouse_button(event["button"])]
             state = valid_bool(event["state"])
@@ -250,7 +301,9 @@ class HidApi:
         self.__hid.send_mouse_button_event(button, state)
 
     @exposed_ws("mouse_move")
-    async def __ws_mouse_move_handler(self, _: WsSession, event: dict) -> None:
+    async def __ws_mouse_move_handler(self, ws: WsSession, event: dict) -> None:
+        if not (await self.__check_hid_allowed(ws)):
+            return
         try:
             to_x = valid_hid_mouse_move(event["to"]["x"])
             to_y = valid_hid_mouse_move(event["to"]["y"])
@@ -259,14 +312,18 @@ class HidApi:
         self.__hid.send_mouse_move_event(to_x, to_y)
 
     @exposed_ws("mouse_relative")
-    async def __ws_mouse_relative_handler(self, _: WsSession, event: dict) -> None:
-        self.__process_ws_delta_event(event, self.__hid.send_mouse_relative_events)
+    async def __ws_mouse_relative_handler(self, ws: WsSession, event: dict) -> None:
+        await self.__process_ws_delta_event(ws, event, self.__hid.send_mouse_relative_events)
 
     @exposed_ws("mouse_wheel")
-    async def __ws_mouse_wheel_handler(self, _: WsSession, event: dict) -> None:
-        self.__process_ws_delta_event(event, self.__hid.send_mouse_wheel_events)
+    async def __ws_mouse_wheel_handler(self, ws: WsSession, event: dict) -> None:
+        await self.__process_ws_delta_event(ws, event, self.__hid.send_mouse_wheel_events)
 
-    def __process_ws_delta_event(self, event: dict, handler: Callable[[Iterable[tuple[int, int]], bool], None]) -> None:
+    async def __process_ws_delta_event(
+        self, ws: WsSession, event: dict, handler: Callable[[Iterable[tuple[int, int]], bool], None],
+    ) -> None:
+        if not (await self.__check_hid_allowed(ws)):
+            return
         try:
             raw_delta = event["delta"]
             deltas = [
@@ -280,7 +337,7 @@ class HidApi:
 
     # =====
 
-    @exposed_http("POST", "/hid/events/send_shortcut")
+    @exposed_http("POST", "/hid/events/send_shortcut", permission="hid")
     async def __events_send_shortcut_handler(self, req: Request) -> Response:
         shortcut = valid_string_list(req.query.get("keys"), subval=valid_hid_key)
         if shortcut:
@@ -293,7 +350,7 @@ class HidApi:
             await self.__hid.send_key_events(seq, no_ignore_keys=True, delay=0.05)
         return make_json_response()
 
-    @exposed_http("POST", "/hid/events/send_key")
+    @exposed_http("POST", "/hid/events/send_key", permission="hid")
     async def __events_send_key_handler(self, req: Request) -> Response:
         key = WEB_TO_EVDEV[valid_hid_key(req.query.get("key"))]
         if "state" in req.query:
@@ -304,7 +361,7 @@ class HidApi:
             self.__hid.send_key_event(key, True, True)
         return make_json_response()
 
-    @exposed_http("POST", "/hid/events/send_mouse_button")
+    @exposed_http("POST", "/hid/events/send_mouse_button", permission="hid")
     async def __events_send_mouse_button_handler(self, req: Request) -> Response:
         button = MOUSE_TO_EVDEV[valid_hid_mouse_button(req.query.get("button"))]
         if "state" in req.query:
@@ -315,18 +372,18 @@ class HidApi:
             self.__hid.send_mouse_button_event(button, False)
         return make_json_response()
 
-    @exposed_http("POST", "/hid/events/send_mouse_move")
+    @exposed_http("POST", "/hid/events/send_mouse_move", permission="hid")
     async def __events_send_mouse_move_handler(self, req: Request) -> Response:
         to_x = valid_hid_mouse_move(req.query.get("to_x"))
         to_y = valid_hid_mouse_move(req.query.get("to_y"))
         self.__hid.send_mouse_move_event(to_x, to_y)
         return make_json_response()
 
-    @exposed_http("POST", "/hid/events/send_mouse_relative")
+    @exposed_http("POST", "/hid/events/send_mouse_relative", permission="hid")
     async def __events_send_mouse_relative_handler(self, req: Request) -> Response:
         return self.__process_http_delta_event(req, self.__hid.send_mouse_relative_event)
 
-    @exposed_http("POST", "/hid/events/send_mouse_wheel")
+    @exposed_http("POST", "/hid/events/send_mouse_wheel", permission="hid")
     async def __events_send_mouse_wheel_handler(self, req: Request) -> Response:
         return self.__process_http_delta_event(req, self.__hid.send_mouse_wheel_event)
 

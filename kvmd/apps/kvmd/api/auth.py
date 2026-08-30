@@ -32,6 +32,8 @@ from ....htserver import HttpExposed
 from ....htserver import exposed_http
 from ....htserver import make_json_response
 from ....htserver import set_request_auth_info
+from ....htserver import get_request_user
+from ....htserver import get_request_groups
 from ....htserver import get_request_unix_credentials
 
 from ....validators import check_string_in_list
@@ -41,6 +43,8 @@ from ....validators.auth import valid_expire
 from ....validators.auth import valid_auth_token
 
 from ..auth import AuthManager
+from ..authz import AuthzManager
+from ..switch import Switch
 
 
 # =====
@@ -113,8 +117,10 @@ async def check_request_auth(auth: AuthManager, exposed: HttpExposed, req: Reque
 
 
 class AuthApi:
-    def __init__(self, auth: AuthManager, allow_redirects: list[str]) -> None:
+    def __init__(self, auth: AuthManager, authz: AuthzManager, switch: Switch, allow_redirects: list[str]) -> None:
         self.__auth = auth
+        self.__authz = authz
+        self.__switch = switch
         self.__allow_redirects = set(["", *allow_redirects])
 
     # =====
@@ -152,4 +158,21 @@ class AuthApi:
     # XXX: This handle is used for access control so it should NEVER allow access by socket credentials
     @exposed_http("GET", "/auth/check", allow_usc=False)
     async def __check_handler(self, _: Request) -> Response:
+        return make_json_response()
+
+    # XXX: This handle is nginx's auth_request target for /streamer (proxied
+    # straight to ustreamer, which has no notion of kvmd users/permissions).
+    # It should NEVER allow access by socket credentials -- ustreamer's own
+    # HTTP surface has no unix-socket-credential mechanism to match against.
+    @exposed_http("GET", "/auth/check_streamer", allow_usc=False)
+    async def __check_streamer_handler(self, req: Request) -> Response:
+        active_port = self.__switch.get_active_port()  # -1 = no port active
+        await self.__authz.check_or_raise(
+            get_request_user(req),
+            "streamer",
+            {"active_port": (active_port if active_port >= 0 else None)},
+            groups=get_request_groups(req),
+            source_ip=(req.remote or ""),
+            user_agent=req.headers.get("User-Agent", ""),
+        )
         return make_json_response()

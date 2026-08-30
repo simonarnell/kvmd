@@ -186,10 +186,10 @@ class KvmdServer(HttpServer):  # pylint: disable=too-many-arguments,too-many-ins
 
         self.__stream_forever = stream_forever
 
-        self.__hid_api = HidApi(hid, keymap_path)  # Ugly hack to get keymaps state
+        self.__hid_api = HidApi(hid, keymap_path, authz, switch)  # Ugly hack to get keymaps state
         self.__apis: list[object] = [
             self,
-            AuthApi(auth, allow_redirects),
+            AuthApi(auth, authz, switch, allow_redirects),
             OidcApi(oidc, auth, allow_redirects),
             InfoApi(im),
             LogApi(log_reader),
@@ -256,7 +256,15 @@ class KvmdServer(HttpServer):  # pylint: disable=too-many-arguments,too-many-ins
     @exposed_http("GET", "/ws")
     async def __ws_handler(self, req: Request) -> WebSocketResponse:
         stream = valid_bool(req.query.get("stream", True))
-        async with self._ws_session(req, stream=stream) as ws:
+        # Stash the authenticated identity on the WS session so per-message
+        # authz checks (e.g. HidApi's HID permission gate) don't need to
+        # re-derive it from the token on every message.
+        async with self._ws_session(
+            req, stream=stream,
+            user=get_request_user(req),
+            groups=get_request_groups(req),
+            is_usc=get_request_is_usc(req),
+        ) as ws:
             (major, minor) = __version__.split(".")
             await ws.send_event("loop", {
                 "version": {
