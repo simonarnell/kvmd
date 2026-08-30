@@ -35,6 +35,7 @@ from ...logging import get_logger
 
 from ... import htclient
 
+from . import AuthIdentity
 from . import BaseAuthService
 
 
@@ -63,7 +64,9 @@ class Plugin(BaseAuthService):
             "timeout": Option(5.0, type=valid_float_f01),
         }
 
-    async def authorize(self, user: str, passwd: str) -> bool:
+    async def authorize(self, user: str, passwd: str) -> (AuthIdentity | None):
+        assert user == user.strip()
+        assert user
         session = self.__ensure_session()
         try:
             async with session.post(
@@ -79,10 +82,10 @@ class Plugin(BaseAuthService):
                 },
             ) as resp:
                 htclient.raise_not_200(resp)
-                return True
+                return AuthIdentity(user)
         except Exception:
             get_logger().exception("Failed HTTP auth request for user %r", user)
-            return False
+            return None
 
     async def cleanup(self) -> None:
         if self.__session:

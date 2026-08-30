@@ -2,6 +2,7 @@ pyserial-asyncio
 pyghmi
 spidev
 pyrad
+authlib
 types-PyYAML
 types-aiofiles
 types-paramiko

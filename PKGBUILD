@@ -79,6 +79,7 @@ depends=(
 	python-ldap
 	python-pysmbc
 	python-paramiko
+	python-authlib
 	python-zstandard
 	python-mako
 	"python-luma-core>=2.5.2"

@@ -52,8 +52,21 @@ all:
 	@ echo "    make release          # Publish the new release (include bump minor)"
 	@ echo "    make clean            # Remove garbage"
 	@ echo "    make clean-all        # Remove garbage and test results"
+	@ echo "    make oidc-test        # Run testcontainers-based OIDC client tests (real Keycloak)"
 	@ echo
 	@ echo "Also you can add option NC=1 to rebuild docker test environment"
+
+
+oidc-test: testenv
+	$(DOCKER) run --rm \
+			--volume `pwd`:/src:ro \
+			--volume `pwd`/testenv:/src/testenv:rw \
+			--volume /var/run/docker.sock:/var/run/docker.sock \
+		-t $(TESTENV_IMAGE) bash -c " \
+			pip install --break-system-packages -q -r /src/testenv/oidc-tests/requirements.txt \
+			&& cd /src \
+			&& PYTHONPATH=/src python -m pytest testenv/oidc-tests/test_oidc_client.py -v \
+		"
 
 
 testenv:

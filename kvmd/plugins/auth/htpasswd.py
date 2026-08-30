@@ -29,6 +29,7 @@ from ...validators.os import valid_abs_path
 
 from ...crypto import KvmdHtpasswdFile
 
+from . import AuthIdentity
 from . import BaseAuthService
 
 
@@ -44,6 +45,10 @@ class Plugin(BaseAuthService):
             "file": Option("/etc/kvmd/htpasswd", type=valid_abs_path),
         }
 
-    async def authorize(self, user: str, passwd: str) -> bool:
+    async def authorize(self, user: str, passwd: str) -> (AuthIdentity | None):
+        assert user == user.strip()
+        assert user
         htpasswd = KvmdHtpasswdFile(self.__path)
-        return htpasswd.check_password(user, passwd)
+        if htpasswd.check_password(user, passwd):
+            return AuthIdentity(user)
+        return None

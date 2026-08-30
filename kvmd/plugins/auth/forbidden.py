@@ -20,12 +20,13 @@
 # ========================================================================== #
 
 
+from . import AuthIdentity
 from . import BaseAuthService
 
 
 # =====
 class Plugin(BaseAuthService):
-    async def authorize(self, user: str, passwd: str) -> bool:
+    async def authorize(self, user: str, passwd: str) -> (AuthIdentity | None):
         _ = user
         _ = passwd
-        return False
+        return None

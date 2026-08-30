@@ -38,6 +38,7 @@ from ...validators.basic import valid_int_f1
 
 from ...logging import get_logger
 
+from . import AuthIdentity
 from . import BaseAuthService
 
 
@@ -416,8 +417,10 @@ class Plugin(BaseAuthService):
             "timeout": Option(5, type=valid_int_f1),
         }
 
-    async def authorize(self, user: str, passwd: str) -> bool:
-        return (await asyncio.to_thread(self.__inner_authorize, user, passwd))
+    async def authorize(self, user: str, passwd: str) -> (AuthIdentity | None):
+        if (await asyncio.to_thread(self.__inner_authorize, user, passwd)):
+            return AuthIdentity(user)
+        return None
 
     def __inner_authorize(self, user: str, passwd: str) -> bool:
         try:

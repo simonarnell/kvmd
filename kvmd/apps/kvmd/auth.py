@@ -33,6 +33,7 @@ from ...logging import get_logger
 
 from ...yamlconf import Section
 
+from ...plugins.auth import AuthIdentity
 from ...plugins.auth import BaseAuthService
 from ...plugins.auth import get_auth_service_class
 
@@ -47,6 +48,7 @@ class _Session:
     expire_req: int
     expire_ts:  int
     ws_started: int
+    groups:     tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         assert self.user == self.user.strip()
@@ -128,6 +130,9 @@ class AuthManager:  # pylint: disable=too-many-arguments,too-many-instance-attri
         )
 
     async def authorize(self, user: str, passwd: str) -> bool:
+        return (await self.__authorize_identity(user, passwd)) is not None
+
+    async def __authorize_identity(self, user: str, passwd: str) -> (AuthIdentity | None):
         assert user == user.strip()
         assert user
         assert self.__enabled
@@ -141,7 +146,7 @@ class AuthManager:  # pylint: disable=too-many-arguments,too-many-instance-attri
                 code = passwd[-6:]
                 if not pyotp.TOTP(secret).verify(code, valid_window=1):
                     logger.error("Got access denied for user %r by TOTP", user)
-                    return False
+                    return None
                 passwd = passwd[:-6]
 
         if user not in self.__force_int_users and self.__ext_service:
@@ -150,12 +155,12 @@ class AuthManager:  # pylint: disable=too-many-arguments,too-many-instance-attri
             service = self.__int_service
 
         pname = service.get_plugin_name()
-        ok = (await service.authorize(user, passwd))
-        if ok:
+        identity = (await service.authorize(user, passwd))
+        if identity is not None:
             logger.info("Authorized user %r via auth service %r", user, pname)
         else:
             logger.error("Got access denied for user %r from auth service %r", user, pname)
-        return ok
+        return identity
 
     async def login(self, user: str, passwd: str, expire: int) -> (str | None):
         assert user == user.strip()
@@ -163,22 +168,31 @@ class AuthManager:  # pylint: disable=too-many-arguments,too-many-instance-attri
         assert expire >= 0
         assert self.__enabled
 
-        if (await self.authorize(user, passwd)):
-            token = self.__make_new_token()
-            session = _Session(
-                user=user,
-                expire_req=expire,
-                expire_ts=self.__make_expire_ts(expire),
-                ws_started=0,
-            )
-            self.__sessions[token] = session
-            get_logger(0).info("Logged in user %r; expire=%s, sessions_now=%d",
-                               session.user,
-                               self.__format_expire_ts(session.expire_ts),
-                               self.__get_sessions_number(session.user))
-            return token
-
+        identity = (await self.__authorize_identity(user, passwd))
+        if identity is not None:
+            return self.__create_session(identity, expire)
         return None
+
+    async def login_external(self, identity: AuthIdentity, expire: int) -> str:
+        assert expire >= 0
+        assert self.__enabled
+        return self.__create_session(identity, expire)
+
+    def __create_session(self, identity: AuthIdentity, expire: int) -> str:
+        token = self.__make_new_token()
+        session = _Session(
+            user=identity.user,
+            expire_req=expire,
+            expire_ts=self.__make_expire_ts(expire),
+            ws_started=0,
+            groups=identity.groups,
+        )
+        self.__sessions[token] = session
+        get_logger(0).info("Logged in user %r; expire=%s, sessions_now=%d",
+                           session.user,
+                           self.__format_expire_ts(session.expire_ts),
+                           self.__get_sessions_number(session.user))
+        return token
 
     def __make_new_token(self) -> str:
         for _ in range(10):
@@ -256,6 +270,13 @@ class AuthManager:  # pylint: disable=too-many-arguments,too-many-instance-attri
                                        self.__get_sessions_number(session.user))
         return None
 
+    def get_session_groups(self, token: str) -> tuple[str, ...]:
+        assert self.__enabled
+        session = self.__sessions.get(token)
+        if session is not None:
+            return session.groups
+        return ()
+
     def start_ws_session(self, token: str) -> None:
         self.__renew_ws_session(token, True)  # Infinite until stop_ws_session()
 
@@ -277,6 +298,7 @@ class AuthManager:  # pylint: disable=too-many-arguments,too-many-instance-attri
                     expire_req=session.expire_req,
                     expire_ts=expire_ts,
                     ws_started=ws_started,
+                    groups=session.groups,
                 )
 
     async def sysprep(self) -> None:

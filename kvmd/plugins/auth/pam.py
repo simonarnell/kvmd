@@ -35,6 +35,7 @@ from ...validators.auth import valid_users_list
 
 from ...logging import get_logger
 
+from . import AuthIdentity
 from . import BaseAuthService
 
 
@@ -59,9 +60,13 @@ class Plugin(BaseAuthService):
             "allow_uids_at": Option(0,  type=valid_int_f0),
         }
 
-    async def authorize(self, user: str, passwd: str) -> bool:
+    async def authorize(self, user: str, passwd: str) -> (AuthIdentity | None):
+        assert user == user.strip()
+        assert user
         async with self.__lock:
-            return (await asyncio.to_thread(self.__inner_authorize, user, passwd))
+            if (await asyncio.to_thread(self.__inner_authorize, user, passwd)):
+                return AuthIdentity(user)
+            return None
 
     def __inner_authorize(self, user: str, passwd: str) -> bool:
         if self.__allow_users and user not in self.__allow_users:

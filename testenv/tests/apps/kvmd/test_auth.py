@@ -40,6 +40,8 @@ from kvmd.yamlconf import make_config
 from kvmd.apps.kvmd.auth import AuthManager
 from kvmd.apps.kvmd.api.auth import check_request_auth
 
+from kvmd.plugins.auth import AuthIdentity
+
 from kvmd.htserver import UnauthorizedError
 from kvmd.htserver import ForbiddenError
 
@@ -75,12 +77,13 @@ async def _get_configured_manager(
     int_path: str,
     ext_path: str="",
     force_int_users: (list[str] | None)=None,
+    extend: bool=False,
 ) -> AsyncGenerator[AuthManager]:
 
     manager = AuthManager(
         enabled=True,
         expire=0,
-        extend=False,
+        extend=extend,
         usc_users=[],
         usc_groups=[],
         unauth_paths=unauth_paths,
@@ -325,6 +328,41 @@ async def test_ok__unauth(tmpdir) -> None:  # type: ignore
         assert manager.is_auth_required(_E_AUTH)
         assert not manager.is_auth_required(_E_UNAUTH)
         assert not manager.is_auth_required(_E_FREE)
+
+
+@pytest.mark.asyncio
+async def test_ok__login_external_groups(tmpdir) -> None:  # type: ignore
+    path = os.path.abspath(str(tmpdir.join("htpasswd")))
+
+    htpasswd = KvmdHtpasswdFile(path, new=True)
+    htpasswd.set_password("admin", "pass")
+    htpasswd.save()
+
+    async with _get_configured_manager([], path, extend=True) as manager:
+        # Password-based login still works and carries no groups by default.
+        token1 = await manager.login("admin", "pass", 0)
+        assert token1 is not None
+        assert manager.check(token1) == "admin"
+        assert manager.get_session_groups(token1) == ()
+
+        # login_external() mints a session without a password, carrying
+        # whatever groups the identity provider (OIDC, or an LDAP-style
+        # plugin) attached to the identity.
+        identity = AuthIdentity(user="bob", groups=("admins", "ops"))
+        token2 = await manager.login_external(identity, 0)
+        assert manager.check(token2) == "bob"
+        assert set(manager.get_session_groups(token2)) == {"admins", "ops"}
+
+        # Groups must survive a WS-session renewal cycle (start/stop), since
+        # __renew_ws_session() rebuilds the frozen _Session on every connect
+        # and disconnect.
+        manager.start_ws_session(token2)
+        assert set(manager.get_session_groups(token2)) == {"admins", "ops"}
+        manager.stop_ws_session(token2)
+        assert set(manager.get_session_groups(token2)) == {"admins", "ops"}
+
+        # Unknown token has no groups.
+        assert manager.get_session_groups("nope") == ()
 
 
 @pytest.mark.asyncio
