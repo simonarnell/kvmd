@@ -4,3 +4,8 @@
 
 This repository contains the configuration and code of KVMD, the main PiKVM daemon.
 If your request does not relate directly to this codebase, please send it to issues of the [PiKVM](https://github.com/pikvm/pikvm/issues) repository.
+
+## Documentation
+
+- [OIDC authentication](docs/oidc.md) — sign in via any standards-compliant OpenID Connect provider.
+- [AuthZ model](docs/authz.md) — role- and group-based access control via OPA.
