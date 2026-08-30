@@ -23,6 +23,7 @@
 import base64
 import dataclasses
 import hashlib
+import json
 import logging
 import secrets
 import time
@@ -55,6 +56,18 @@ _PENDING_TTL = 300.0  # Seconds a login attempt (state/nonce/PKCE verifier) stay
 
 class OidcError(Exception):
     pass
+
+
+def _peek_jwt_header(token: str) -> dict:
+    # Decodes the JWT header WITHOUT verifying the signature -- for logging
+    # only (which kid/alg did the IdP actually use), never for a trust
+    # decision. jose_jwt.decode() below is what actually verifies the token.
+    try:
+        segment = token.split(".", 1)[0]
+        padded = segment + "=" * (-len(segment) % 4)
+        return json.loads(base64.urlsafe_b64decode(padded))
+    except Exception:
+        return {}
 
 
 @dataclasses.dataclass(frozen=True)
@@ -121,19 +134,29 @@ class OidcManager:  # pylint: disable=too-many-instance-attributes
     async def __refresh_discovery(self) -> None:
         assert self.__session is not None
         timeout = aiohttp.ClientTimeout(total=self.__timeout)
+        logger = get_logger(0)
 
         discovery_url = f"{self.__issuer}/.well-known/openid-configuration"
+        logger.debug("oidc: fetching discovery document: %s", discovery_url)
         async with self.__session.get(discovery_url, ssl=self.__verify_ssl, timeout=timeout) as resp:
             resp.raise_for_status()
             discovery = await resp.json()
 
         self.__authorize_endpoint = discovery["authorization_endpoint"]
         self.__token_endpoint = discovery["token_endpoint"]
+        logger.debug(
+            "oidc: discovery resolved: authorize=%s token=%s jwks_uri=%s",
+            self.__authorize_endpoint, self.__token_endpoint, discovery["jwks_uri"],
+        )
 
         async with self.__session.get(discovery["jwks_uri"], ssl=self.__verify_ssl, timeout=timeout) as resp:
             resp.raise_for_status()
             jwks_data = await resp.json()
         self.__jwks = JsonWebKey.import_key_set(jwks_data)
+        logger.debug(
+            "oidc: JWKS refreshed: %d key(s), kid=%r",
+            len(jwks_data.get("keys", [])), [k.get("kid") for k in jwks_data.get("keys", [])],
+        )
 
     # =====
 
@@ -165,7 +188,11 @@ class OidcManager:  # pylint: disable=too-many-instance-attributes
             "code_challenge": code_challenge,
             "code_challenge_method": "S256",
         }
-        return f"{self.__authorize_endpoint}?{urllib.parse.urlencode(params)}"
+        url = f"{self.__authorize_endpoint}?{urllib.parse.urlencode(params)}"
+        # code_verifier is deliberately omitted: it's the one secret in this
+        # flow that never leaves kvmd, so it never goes in a log either.
+        get_logger(0).debug("oidc: built authorize URL for redirect=%r state=%r: %s", redirect, state, url)
+        return url
 
     def __sweep_pending(self) -> None:
         now = time.monotonic()
@@ -176,6 +203,9 @@ class OidcManager:  # pylint: disable=too-many-instance-attributes
     async def handle_callback(self, code: str, state: str) -> tuple[AuthIdentity, str]:
         assert self.__enabled
         assert self.__session is not None
+        logger = get_logger(0)
+
+        logger.debug("oidc: callback received: state=%r pending_count=%d", state, len(self.__pending))
 
         pending = self.__pending.pop(state, None)
         if pending is None or (time.monotonic() - pending.created_ts) > _PENDING_TTL:
@@ -184,6 +214,7 @@ class OidcManager:  # pylint: disable=too-many-instance-attributes
 
         try:
             timeout = aiohttp.ClientTimeout(total=self.__timeout)
+            logger.debug("oidc: exchanging code at token endpoint: %s", self.__token_endpoint)
             async with self.__session.post(
                 self.__token_endpoint,
                 data={
@@ -203,6 +234,11 @@ class OidcManager:  # pylint: disable=too-many-instance-attributes
             get_logger(0).error("oidc: token exchange failed: %s", ex)
             raise OidcError("Token exchange failed") from ex
 
+        # Deliberately not logging token_data itself, even at debug: it holds
+        # the bearer access_token (and the id_token, logged separately below
+        # only as a header/claim-key summary, never the raw compact JWT).
+        logger.debug("oidc: token endpoint responded with keys=%r", sorted(token_data.keys()))
+
         id_token = token_data.get("id_token")
         if not id_token:
             get_logger(0).error("oidc: token response did not include an id_token (keys present: %r)", sorted(token_data.keys()))
@@ -214,11 +250,19 @@ class OidcManager:  # pylint: disable=too-many-instance-attributes
         return (identity, pending.redirect)
 
     async def __validate_id_token(self, id_token: str, nonce: str) -> AuthIdentity:
+        logger = get_logger(0)
         claims_options = {
             "iss":   {"essential": True, "value": self.__issuer},
             "aud":   {"essential": True, "value": self.__client_id},
             "nonce": {"essential": True, "value": nonce},
         }
+
+        header = _peek_jwt_header(id_token)
+        logger.debug(
+            "oidc: id_token header: alg=%r kid=%r; known JWKS kids=%r",
+            header.get("alg"), header.get("kid"), self.__jwks_kids(),
+        )
+
         try:
             claims = jose_jwt.decode(id_token, self.__jwks, claims_options=claims_options)
         except JoseError as ex:
@@ -227,6 +271,7 @@ class OidcManager:  # pylint: disable=too-many-instance-attributes
             get_logger(0).info("oidc: id_token validation failed, refreshing JWKS and retrying: %s", ex)
             try:
                 await self.__refresh_discovery()
+                logger.debug("oidc: JWKS kids after refresh: %r", self.__jwks_kids())
                 claims = jose_jwt.decode(id_token, self.__jwks, claims_options=claims_options)
             except Exception as retry_ex:
                 get_logger(0).error("oidc: id_token validation still failing after JWKS refresh: %s", retry_ex)
@@ -238,6 +283,8 @@ class OidcManager:  # pylint: disable=too-many-instance-attributes
             get_logger(0).error("oidc: id_token claims validation failed (iss/aud/exp/nonce): %s", ex)
             raise OidcError("Invalid id_token claims") from ex
 
+        logger.debug("oidc: id_token claims valid; claims present: %r", sorted(claims.keys()))
+
         user = claims.get(self.__username_claim)
         if not user or not str(user).strip():
             get_logger(0).error(
@@ -248,7 +295,19 @@ class OidcManager:  # pylint: disable=too-many-instance-attributes
 
         groups_raw = claims.get(self.__groups_claim) or []
         if not isinstance(groups_raw, list):
+            logger.debug(
+                "oidc: groups claim %r present but not a list (type=%s) -- treating as no groups",
+                self.__groups_claim, type(groups_raw).__name__,
+            )
             groups_raw = []
         groups = tuple(str(group) for group in groups_raw)
 
         return AuthIdentity(user=str(user).strip(), groups=groups)
+
+    def __jwks_kids(self) -> list[str]:
+        if self.__jwks is None:
+            return []
+        try:
+            return [str(key.get("kid")) for key in self.__jwks.as_dict().get("keys", [])]
+        except Exception:
+            return ["<unavailable>"]

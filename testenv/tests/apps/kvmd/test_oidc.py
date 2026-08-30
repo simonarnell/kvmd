@@ -165,6 +165,30 @@ async def test_ok__happy_path(aiohttp_server: Any) -> None:
 
 
 @pytest.mark.asyncio
+async def test_ok__debug_tracing_covers_the_kid_diagnostic(aiohttp_server: Any, caplog: Any) -> None:
+    # The single highest-value debug trace: kid mismatches between the
+    # id_token and the cached JWKS are the most common real-world OIDC
+    # misconfiguration, and the only way to see it is to log both sides.
+    import logging
+    caplog.set_level(logging.DEBUG, logger="kvmd.apps.kvmd.oidc")
+
+    async with _manager(aiohttp_server) as (mgr, nonces, _overrides):
+        url = mgr.build_authorize_url(redirect="/kvm")
+        (state, nonce) = _extract_state_and_nonce(url)
+        nonces["code1"] = nonce
+
+        await mgr.handle_callback("code1", state)
+
+        messages = [rec.message for rec in caplog.records]
+        assert any("id_token header: alg=" in m and "kid=" in m for m in messages)
+        assert any("known JWKS kids=" in m for m in messages)
+        assert any("built authorize URL" in m for m in messages)
+        assert any("callback received: state=" in m for m in messages)
+        assert any("token endpoint responded with keys=" in m for m in messages)
+        assert any("claims present:" in m for m in messages)
+
+
+@pytest.mark.asyncio
 async def test_fail__state_is_single_use(aiohttp_server: Any) -> None:
     async with _manager(aiohttp_server) as (mgr, nonces, _overrides):
         url = mgr.build_authorize_url(redirect="/kvm")

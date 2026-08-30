@@ -166,6 +166,21 @@ async def test_audit_log_emitted(aiohttp_server, caplog) -> None:  # type: ignor
 
 
 @pytest.mark.asyncio
+async def test_debug_trace_shows_raw_opa_request_and_response(aiohttp_server, caplog) -> None:  # type: ignore
+    # The audit log only ever records the final decision; debugging a
+    # policy issue needs the raw input OPA was actually asked with and the
+    # raw response it gave back, at debug level.
+    async with _opa_server(aiohttp_server, allow=True) as url:
+        async with _manager(url) as mgr:
+            with caplog.at_level(logging.DEBUG, logger="kvmd.apps.kvmd.authz"):
+                await mgr.check("dave", "hid.write", {"active_port": 2}, groups=("kvmd-operators",))
+
+    messages = [r.getMessage() for r in caplog.records if r.name == "kvmd.apps.kvmd.authz"]
+    assert any("request to" in m and "'user': 'dave'" in m and "'user_groups': ['kvmd-operators']" in m for m in messages)
+    assert any("OPA responded" in m and "'result': True" in m for m in messages)
+
+
+@pytest.mark.asyncio
 async def test_audit_log_on_opa_error(caplog) -> None:  # type: ignore
     mgr = AuthzManager(
         enabled=True,

@@ -97,6 +97,9 @@ class AuthzManager:
 
         allowed = self.__fail_open
         opa_error = False
+        logger = get_logger(0)
+
+        logger.debug("authz: request to %s: input=%r", self.__opa_url, input_data)
 
         try:
             async with self.__session.post(
@@ -106,9 +109,10 @@ class AuthzManager:
             ) as resp:
                 data = await resp.json()
                 allowed = bool(data.get("result", False))
+                logger.debug("authz: OPA responded: %r", data)
         except Exception as ex:
             opa_error = True
-            get_logger(0).error(
+            logger.error(
                 "authz: OPA unavailable (failing %s): %s",
                 ("open" if self.__fail_open else "closed"),
                 ex,

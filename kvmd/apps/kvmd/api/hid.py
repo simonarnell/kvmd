@@ -103,6 +103,11 @@ class HidApi:
         # cache it per-connection and only recompute when the port changes.
         cache = ws.kwargs.get("_hid_authz_cache")
         if cache is None or cache["port"] != active_port:
+            get_logger(0).debug(
+                "hid: authz cache %s for user=%r on ws=%r: port %r -> %r",
+                ("miss" if cache is None else "invalidated (port changed)"),
+                user, id(ws), (cache["port"] if cache else None), active_port,
+            )
             allowed = (await self.__authz.check(
                 user, "hid", {"active_port": active_port},
                 groups=ws.kwargs.get("groups", ()),
