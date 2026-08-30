@@ -130,9 +130,9 @@ class AuthManager:  # pylint: disable=too-many-arguments,too-many-instance-attri
         )
 
     async def authorize(self, user: str, passwd: str) -> bool:
-        return (await self.__authorize_identity(user, passwd)) is not None
+        return (await self.authorize_identity(user, passwd)) is not None
 
-    async def __authorize_identity(self, user: str, passwd: str) -> (AuthIdentity | None):
+    async def authorize_identity(self, user: str, passwd: str) -> (AuthIdentity | None):
         assert user == user.strip()
         assert user
         assert self.__enabled
@@ -168,7 +168,7 @@ class AuthManager:  # pylint: disable=too-many-arguments,too-many-instance-attri
         assert expire >= 0
         assert self.__enabled
 
-        identity = (await self.__authorize_identity(user, passwd))
+        identity = (await self.authorize_identity(user, passwd))
         if identity is not None:
             return self.__create_session(identity, expire)
         return None

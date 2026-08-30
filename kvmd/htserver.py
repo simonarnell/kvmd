@@ -275,6 +275,7 @@ def parse_ws_event(msg: str) -> tuple[str, dict]:
 _REQUEST_AUTH_INFO = "_kvmd_auth_info"
 _REQUEST_AUTH_TOKEN = "_kvmd_auth_token"
 _REQUEST_AUTH_USER = "_kvmd_auth_user"
+_REQUEST_AUTH_GROUPS = "_kvmd_auth_groups"
 _REQUEST_AUTH_IS_USC = "_kvmd_auth_is_usc"
 
 
@@ -285,10 +286,18 @@ def _format_P(req: BaseRequest, *_, **__) -> str:  # type: ignore  # pylint: dis
 AccessLogger._format_P = staticmethod(_format_P)  # type: ignore  # pylint: disable=protected-access
 
 
-def set_request_auth_info(req: BaseRequest, info: str, token: str="", user: str="", is_usc: bool=False) -> None:
+def set_request_auth_info(
+    req: BaseRequest,
+    info: str,
+    token: str="",
+    user: str="",
+    groups: tuple[str, ...]=(),
+    is_usc: bool=False,
+) -> None:
     setattr(req, _REQUEST_AUTH_INFO, info)
     setattr(req, _REQUEST_AUTH_TOKEN, token)
     setattr(req, _REQUEST_AUTH_USER, user)
+    setattr(req, _REQUEST_AUTH_GROUPS, groups)
     setattr(req, _REQUEST_AUTH_IS_USC, is_usc)
 
 
@@ -298,6 +307,10 @@ def get_request_auth_token(req: BaseRequest) -> str:
 
 def get_request_user(req: BaseRequest) -> str:
     return str(getattr(req, _REQUEST_AUTH_USER, ""))
+
+
+def get_request_groups(req: BaseRequest) -> tuple[str, ...]:
+    return tuple(getattr(req, _REQUEST_AUTH_GROUPS, ()))
 
 
 def get_request_is_usc(req: BaseRequest) -> bool:

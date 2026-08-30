@@ -44,6 +44,7 @@ from kvmd.plugins.auth import AuthIdentity
 
 from kvmd.htserver import UnauthorizedError
 from kvmd.htserver import ForbiddenError
+from kvmd.htserver import get_request_groups
 
 from kvmd.plugins.auth import get_auth_service_class
 
@@ -363,6 +364,64 @@ async def test_ok__login_external_groups(tmpdir) -> None:  # type: ignore
 
         # Unknown token has no groups.
         assert manager.get_session_groups("nope") == ()
+
+
+class _GroupsAuthManager(AuthManager):
+    """
+    Stands in for any auth backend that surfaces group membership (LDAP's
+    memberOf being the real-world case). Overriding authorize_identity()
+    covers login() and the xhdr/basic checkers alike, since they all funnel
+    through it — proving group-carrying is a property of AuthManager's
+    contract, not something each plugin has to get right independently.
+    """
+
+    async def authorize_identity(self, user: str, passwd: str) -> (AuthIdentity | None):
+        if user == "admin" and passwd == "pass":
+            return AuthIdentity(user="admin", groups=("admins", "ops"))
+        return None
+
+
+@pytest.mark.asyncio
+async def test_ok__groups_reach_the_request_on_every_auth_channel() -> None:
+    # Regression test: xhdr and basic auth used to call AuthManager.authorize(),
+    # which discards the AuthIdentity down to a bool and never touched groups.
+    # Any backend that carries real group data (LDAP's memberOf, in practice)
+    # had that data silently dropped for those two channels, even though
+    # AuthzManager.check() gates access on exactly this. All three channels
+    # below must agree.
+    manager = _GroupsAuthManager(
+        enabled=True, expire=0, extend=False,
+        usc_users=[], usc_groups=[], unauth_paths=[],
+        int_type="forbidden", int_kwargs={}, force_int_users=[],
+        ext_type="", ext_kwargs={},
+        totp_secret_path="",
+    )
+    try:
+        async def check_groups(**kwargs) -> tuple[str, ...]:  # type: ignore
+            req = make_mocked_request(_E_AUTH.method, _E_AUTH.path, **kwargs)
+            await check_request_auth(manager, _E_AUTH, req)
+            return get_request_groups(req)
+
+        # xhdr
+        assert set(await check_groups(headers={"X-KVMD-User": "admin", "X-KVMD-Passwd": "pass"})) == {"admins", "ops"}
+
+        # basic
+        assert set(await check_groups(
+            headers={"Authorization": "basic " + base64.b64encode(b"admin:pass").decode()},
+        )) == {"admins", "ops"}
+
+        # cookie/token, via login()
+        token = await manager.login("admin", "pass", 0)
+        assert token is not None
+        assert set(await check_groups(headers={"Cookie": f"auth_token={token}"})) == {"admins", "ops"}
+
+        # A backend with no groups (the htpasswd/PAM/RADIUS/HTTP-plugin case)
+        # must still authenticate fine and simply carry no groups — static
+        # data.users-based authz is unaffected either way.
+        with pytest.raises(ForbiddenError):
+            await check_groups(headers={"X-KVMD-User": "nobody", "X-KVMD-Passwd": "x"})
+    finally:
+        await manager.cleanup()
 
 
 @pytest.mark.asyncio

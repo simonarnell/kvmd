@@ -52,9 +52,11 @@ async def _check_xhdr(auth: AuthManager, _: HttpExposed, req: Request) -> bool:
     if user:
         user = valid_user(user)
         passwd = req.headers.get("X-KVMD-Passwd", "")
-        set_request_auth_info(req, f"{user} (xhdr)", user=user)
-        if (await auth.authorize(user, valid_passwd(passwd))):
+        identity = (await auth.authorize_identity(user, valid_passwd(passwd)))
+        if identity is not None:
+            set_request_auth_info(req, f"{user} (xhdr)", user=identity.user, groups=identity.groups)
             return True
+        set_request_auth_info(req, f"{user} (xhdr)", user=user)
         raise ForbiddenError()
     return False
 
@@ -64,7 +66,8 @@ async def _check_token(auth: AuthManager, _: HttpExposed, req: Request) -> bool:
     if token:
         user = auth.check(valid_auth_token(token))
         if user:
-            set_request_auth_info(req, f"{user} (token)", token=token, user=user)
+            groups = auth.get_session_groups(token)
+            set_request_auth_info(req, f"{user} (token)", token=token, user=user, groups=groups)
             return True
         set_request_auth_info(req, "- (token)")
         raise ForbiddenError()
@@ -79,9 +82,11 @@ async def _check_basic(auth: AuthManager, _: HttpExposed, req: Request) -> bool:
         except Exception:
             raise UnauthorizedError()
         user = valid_user(user)
-        set_request_auth_info(req, f"{user} (basic)", user=user)
-        if (await auth.authorize(user, valid_passwd(passwd))):
+        identity = (await auth.authorize_identity(user, valid_passwd(passwd)))
+        if identity is not None:
+            set_request_auth_info(req, f"{user} (basic)", user=identity.user, groups=identity.groups)
             return True
+        set_request_auth_info(req, f"{user} (basic)", user=user)
         raise ForbiddenError()
     return False
 

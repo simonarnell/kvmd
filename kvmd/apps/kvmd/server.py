@@ -49,7 +49,7 @@ from ...htserver import WsSession
 from ...htserver import HttpServer
 from ...htserver import get_request_user
 from ...htserver import get_request_is_usc
-from ...htserver import get_request_auth_token
+from ...htserver import get_request_groups
 
 from ...plugins import BasePlugin
 from ...plugins.hid import BaseHid
@@ -198,7 +198,7 @@ class KvmdServer(HttpServer):  # pylint: disable=too-many-arguments,too-many-ins
             AtxApi(atx),
             MsdApi(msd),
             StreamerApi(streamer, ocr),
-            SwitchApi(switch, authz, auth),
+            SwitchApi(switch, authz),
             ExportApi(im, atx, ugpio),
             RedfishRootApi(),
             RedfishAtxApi(im, atx, switch),
@@ -295,8 +295,7 @@ class KvmdServer(HttpServer):  # pylint: disable=too-many-arguments,too-many-ins
             user = get_request_user(req)
             if user:
                 active_port = self.__switch.get_active_port()  # -1 = no port active
-                token = get_request_auth_token(req)
-                groups = (self.__auth.get_session_groups(token) if token else ())
+                groups = get_request_groups(req)
                 if not (await self.__authz.check(
                     user,
                     exposed.permission,
