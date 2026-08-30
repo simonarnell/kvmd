@@ -392,8 +392,8 @@ async def test_ok__groups_reach_the_request_on_every_auth_channel() -> None:
     manager = _GroupsAuthManager(
         enabled=True, expire=0, extend=False,
         usc_users=[], usc_groups=[], unauth_paths=[],
-        int_type="forbidden", int_kwargs={}, force_int_users=[],
-        ext_type="", ext_kwargs={},
+        int_c=_make_service_config("/nonexistent"), force_int_users=[],
+        ext_c=_make_stub_config(""),
         totp_secret_path="",
     )
     try:

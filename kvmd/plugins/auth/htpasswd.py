@@ -46,8 +46,6 @@ class Plugin(BaseAuthService):
         }
 
     async def authorize(self, user: str, passwd: str) -> (AuthIdentity | None):
-        assert user == user.strip()
-        assert user
         htpasswd = KvmdHtpasswdFile(self.__path)
         if htpasswd.check_password(user, passwd):
             return AuthIdentity(user)

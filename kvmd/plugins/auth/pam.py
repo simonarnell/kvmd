@@ -61,8 +61,6 @@ class Plugin(BaseAuthService):
         }
 
     async def authorize(self, user: str, passwd: str) -> (AuthIdentity | None):
-        assert user == user.strip()
-        assert user
         async with self.__lock:
             if (await asyncio.to_thread(self.__inner_authorize, user, passwd)):
                 return AuthIdentity(user)

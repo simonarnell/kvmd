@@ -27,6 +27,6 @@ from . import check_string_in_list
 _LOG_LEVELS = ["debug", "info", "warning", "error", "critical"]
 
 
-@add_validator_magic
+@add_validator_magic(16)
 def valid_log_level(arg: Any) -> str:
     return check_string_in_list(arg, "log level", _LOG_LEVELS).upper()
