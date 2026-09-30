@@ -65,8 +65,7 @@ export function main() {
 	}
 }
 
-function __loginOidc(ev) {
-	ev.preventDefault();
+function __loginOidc() {
 	tools.currentOpen("api/auth/oidc/login");
 }
 

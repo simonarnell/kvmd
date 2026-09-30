@@ -91,8 +91,12 @@ class OidcApi:
 
         token = await self.__auth.login_external(identity, expire=0)
 
-        if redirect:
-            resp = HTTPFound(location=redirect)
-            resp.set_cookie(_COOKIE_AUTH_TOKEN, token, httponly=True, samesite="Strict")
-            raise resp
-        return make_json_response(set_cookies={_COOKIE_AUTH_TOKEN: token})
+        # The whole OIDC flow is a full-page browser round trip (login page ->
+        # IdP -> here), never an XHR/fetch call, so the callback must always
+        # send the browser somewhere with a real HTTP redirect. An empty
+        # `redirect` is the default/root case ("" is seeded into
+        # __allow_redirects for exactly this), not "don't redirect" -- returning
+        # bare JSON here left the browser stuck showing the raw API response.
+        resp = HTTPFound(location=(redirect or "/"))
+        resp.set_cookie(_COOKIE_AUTH_TOKEN, token, httponly=True, samesite="Strict")
+        raise resp
