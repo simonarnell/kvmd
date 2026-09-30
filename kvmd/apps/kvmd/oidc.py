@@ -265,9 +265,13 @@ class OidcManager:  # pylint: disable=too-many-instance-attributes
 
         try:
             claims = jose_jwt.decode(id_token, self.__jwks, claims_options=claims_options)
-        except JoseError as ex:
+        except (JoseError, ValueError) as ex:
             # The signing key may have rotated (unknown kid) since we last
             # fetched JWKS: refresh once and retry before giving up.
+            # authlib's KeySet.find_by_kid() raises a plain ValueError (not
+            # a JoseError) when the kid isn't found -- the most common real
+            # trigger for this whole retry path -- so that has to be caught
+            # here too, not just JoseError.
             get_logger(0).info("oidc: id_token validation failed, refreshing JWKS and retrying: %s", ex)
             try:
                 await self.__refresh_discovery()

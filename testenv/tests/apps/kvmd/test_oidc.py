@@ -313,3 +313,81 @@ async def test_fail__missing_code_or_state_is_logged(caplog: Any) -> None:
     with pytest.raises(ForbiddenError):
         await handler(req)
     assert any("missing code and/or state" in rec.message for rec in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_ok__jwks_key_rotation_triggers_refresh_and_succeeds(aiohttp_server: Any) -> None:
+    # Regression test: authlib's KeySet.find_by_kid() raises a plain
+    # ValueError (not a JoseError) when the id_token's kid isn't in the
+    # cached JWKS. __validate_id_token() used to only catch JoseError for
+    # its "refresh JWKS and retry" path, so real key rotation -- the exact
+    # scenario that refresh path exists for -- crashed with an uncaught
+    # ValueError (500) instead of transparently recovering. Found by
+    # restarting a real Keycloak instance (which generates a fresh signing
+    # key on every boot) against an already-running kvmd.
+    (pub_a, priv_a) = _make_key()
+    (pub_b, priv_b) = _make_key()
+    assert pub_a["kid"] != pub_b["kid"]
+
+    issuer_holder: dict = {}
+    jwks_holder = {"keys": [pub_a]}   # what the IdP currently serves
+    signing_holder = {"pub": pub_a, "priv": priv_a}   # what actually signs new id_tokens
+    nonces: dict = {}
+
+    app = web.Application()
+
+    async def discovery(_: web.Request) -> web.Response:
+        issuer = issuer_holder["issuer"]
+        return web.json_response({
+            "authorization_endpoint": f"{issuer}/authorize",
+            "token_endpoint": f"{issuer}/token",
+            "jwks_uri": f"{issuer}/jwks",
+        })
+
+    async def jwks(_: web.Request) -> web.Response:
+        return web.json_response(jwks_holder)
+
+    async def token(req: web.Request) -> web.Response:
+        data = await req.post()
+        code = str(data["code"])
+        nonce = nonces.get(code, "unknown-nonce")
+        now = int(time.time())
+        payload = {
+            "iss": issuer_holder["issuer"], "aud": _CLIENT_ID, "sub": "u1",
+            "exp": now + 300, "iat": now, "nonce": nonce,
+            "preferred_username": "alice", "groups": ["admins"],
+        }
+        header = {"alg": "RS256", "kid": signing_holder["pub"]["kid"]}
+        id_token = jose_jwt.encode(header, payload, signing_holder["priv"]).decode()
+        return web.json_response({"access_token": "at", "id_token": id_token, "token_type": "Bearer"})
+
+    app.router.add_get("/.well-known/openid-configuration", discovery)
+    app.router.add_get("/jwks", jwks)
+    app.router.add_post("/token", token)
+
+    server = await aiohttp_server(app)
+    issuer_holder["issuer"] = f"http://localhost:{server.port}"
+
+    mgr = OidcManager(
+        enabled=True, issuer=issuer_holder["issuer"], client_id=_CLIENT_ID, client_secret=_CLIENT_SECRET,
+        redirect_uri="http://kvmd.local/api/auth/oidc/callback", scopes=["openid", "profile", "groups"],
+        username_claim="preferred_username", groups_claim="groups", verify_ssl=True, timeout=5.0,
+    )
+    await mgr.sysprep()  # caches JWKS with only pub_a at this point
+    try:
+        # Rotate: the IdP now serves and signs with an entirely different
+        # key the manager has never seen -- exactly what a real IdP restart
+        # (or a scheduled key rotation) produces.
+        jwks_holder["keys"] = [pub_b]
+        signing_holder["pub"] = pub_b
+        signing_holder["priv"] = priv_b
+
+        url = mgr.build_authorize_url(redirect="/kvm")
+        (state, nonce) = _extract_state_and_nonce(url)
+        nonces["code1"] = nonce
+
+        (identity, redirect) = (await mgr.handle_callback("code1", state))
+        assert identity.user == "alice"
+        assert redirect == "/kvm"
+    finally:
+        await mgr.cleanup()
