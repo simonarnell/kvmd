@@ -86,6 +86,7 @@ class OidcManager:  # pylint: disable=too-many-instance-attributes
         client_id: str,
         client_secret: str,
         redirect_uri: str,
+        post_logout_redirect_uri: str,
         scopes: list[str],
         username_claim: str,
         groups_claim: str,
@@ -98,6 +99,7 @@ class OidcManager:  # pylint: disable=too-many-instance-attributes
         self.__client_id = client_id
         self.__client_secret = client_secret
         self.__redirect_uri = redirect_uri
+        self.__post_logout_redirect_uri = post_logout_redirect_uri
         self.__scopes = scopes
         self.__username_claim = username_claim
         self.__groups_claim = groups_claim
@@ -107,6 +109,7 @@ class OidcManager:  # pylint: disable=too-many-instance-attributes
         self.__session: (aiohttp.ClientSession | None) = None
         self.__authorize_endpoint = ""
         self.__token_endpoint = ""
+        self.__end_session_endpoint = ""  # Optional per spec -- not every IdP publishes one.
         self.__jwks: (KeySet | None) = None
 
         self.__pending: dict[str, _Pending] = {}
@@ -144,9 +147,10 @@ class OidcManager:  # pylint: disable=too-many-instance-attributes
 
         self.__authorize_endpoint = discovery["authorization_endpoint"]
         self.__token_endpoint = discovery["token_endpoint"]
+        self.__end_session_endpoint = discovery.get("end_session_endpoint", "")
         logger.debug(
-            "oidc: discovery resolved: authorize=%s token=%s jwks_uri=%s",
-            self.__authorize_endpoint, self.__token_endpoint, discovery["jwks_uri"],
+            "oidc: discovery resolved: authorize=%s token=%s jwks_uri=%s end_session=%r",
+            self.__authorize_endpoint, self.__token_endpoint, discovery["jwks_uri"], self.__end_session_endpoint,
         )
 
         async with self.__session.get(discovery["jwks_uri"], ssl=self.__verify_ssl, timeout=timeout) as resp:
@@ -200,7 +204,7 @@ class OidcManager:  # pylint: disable=too-many-instance-attributes
             if now - pending.created_ts > _PENDING_TTL:
                 del self.__pending[key]
 
-    async def handle_callback(self, code: str, state: str) -> tuple[AuthIdentity, str]:
+    async def handle_callback(self, code: str, state: str) -> tuple[AuthIdentity, str, str]:
         assert self.__enabled
         assert self.__session is not None
         logger = get_logger(0)
@@ -247,7 +251,11 @@ class OidcManager:  # pylint: disable=too-many-instance-attributes
         identity = (await self.__validate_id_token(id_token, pending.nonce))
         _audit_log.info("oidc: user=%r groups=%r authenticated via issuer=%r",
                         identity.user, identity.groups, self.__issuer)
-        return (identity, pending.redirect)
+        # The raw id_token is returned (not just the parsed identity) because
+        # RP-initiated logout needs it back as id_token_hint -- see
+        # build_end_session_url() -- and it's otherwise discarded once
+        # validated.
+        return (identity, pending.redirect, id_token)
 
     async def __validate_id_token(self, id_token: str, nonce: str) -> AuthIdentity:
         logger = get_logger(0)
@@ -307,6 +315,19 @@ class OidcManager:  # pylint: disable=too-many-instance-attributes
         groups = tuple(str(group) for group in groups_raw)
 
         return AuthIdentity(user=str(user).strip(), groups=groups)
+
+    def build_end_session_url(self, id_token_hint: str) -> (str | None):
+        # RP-initiated logout (https://openid.net/specs/openid-connect-rpinitiated-1_0.html).
+        # Not every IdP publishes end_session_endpoint (it's OPTIONAL per
+        # spec) -- callers must treat None as "this IdP has no logout
+        # endpoint to redirect to" and fall back to a local-only logout.
+        assert self.__enabled
+        if not self.__end_session_endpoint:
+            return None
+        params = {"id_token_hint": id_token_hint}
+        if self.__post_logout_redirect_uri:
+            params["post_logout_redirect_uri"] = self.__post_logout_redirect_uri
+        return f"{self.__end_session_endpoint}?{urllib.parse.urlencode(params)}"
 
     def __jwks_kids(self) -> list[str]:
         if self.__jwks is None:

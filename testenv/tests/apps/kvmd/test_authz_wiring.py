@@ -169,7 +169,7 @@ async def test_ok__hid_ws_authz_decision_cached_per_port() -> None:
 async def test_ok__streamer_endpoint_calls_authz() -> None:
     authz_deny = _FakeAuthz(allow=False)
     switch = _FakeSwitch(active_port=3)
-    auth_api = AuthApi(auth=None, authz=authz_deny, switch=switch, allow_redirects=[])  # type: ignore[arg-type]
+    auth_api = AuthApi(auth=None, authz=authz_deny, oidc=None, switch=switch, allow_redirects=[])  # type: ignore[arg-type]
 
     handler = auth_api._AuthApi__check_streamer_handler  # type: ignore[attr-defined]  # pylint: disable=protected-access
 

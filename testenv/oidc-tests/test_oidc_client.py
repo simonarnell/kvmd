@@ -78,6 +78,7 @@ async def _manager(issuer: str) -> AsyncGenerator[OidcManager, None]:
         client_id=_CLIENT_ID,
         client_secret=_CLIENT_SECRET,
         redirect_uri="http://kvmd.local/api/auth/oidc/callback",
+        post_logout_redirect_uri="",
         scopes=["openid", "profile"],
         username_claim="preferred_username",
         groups_claim="groups",

@@ -357,6 +357,7 @@ def make_config_scheme() -> dict:
                 "client_id":      Option("", type=valid_stripped_string),
                 "client_secret":  Option("", type=valid_stripped_string),
                 "redirect_uri":   Option("", type=valid_oidc_url, if_empty=""),
+                "post_logout_redirect_uri": Option("", type=valid_oidc_url, if_empty=""),
                 "scopes":         Option(["openid", "profile", "groups"], type=valid_string_list),
                 "username_claim": Option("preferred_username", type=valid_stripped_string_not_empty),
                 "groups_claim":   Option("groups", type=valid_stripped_string_not_empty),

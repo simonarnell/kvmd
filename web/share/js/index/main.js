@@ -138,7 +138,24 @@ function __makeApp(id, path, icon, name) {
 function __logout() {
 	tools.httpPost("api/auth/logout", null, function(http) {
 		switch (http.status) {
-			case 200:
+			case 200: {
+				// If this was an OIDC-originated session, the server hands
+				// back the IdP's RP-initiated logout URL so the browser also
+				// ends the IdP's own session -- not just kvmd's. Without
+				// this, clicking logout only looks like it worked: the IdP
+				// session is still live, so signing in again silently
+				// re-authenticates without ever prompting for credentials.
+				let end_session_url = null;
+				try {
+					end_session_url = JSON.parse(http.responseText)["result"]["end_session_url"];
+				} catch { /* Nah */ }
+				if (end_session_url) {
+					window.location.href = end_session_url;
+				} else {
+					tools.currentOpen("login");
+				}
+			} break;
+
 			case 401:
 			case 403:
 				tools.currentOpen("login");

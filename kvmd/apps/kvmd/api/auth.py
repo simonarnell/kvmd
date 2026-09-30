@@ -44,6 +44,7 @@ from ....validators.auth import valid_auth_token
 
 from ..auth import AuthManager
 from ..authz import AuthzManager
+from ..oidc import OidcManager
 from ..switch import Switch
 
 
@@ -117,9 +118,18 @@ async def check_request_auth(auth: AuthManager, exposed: HttpExposed, req: Reque
 
 
 class AuthApi:
-    def __init__(self, auth: AuthManager, authz: AuthzManager, switch: Switch, allow_redirects: list[str]) -> None:
+    def __init__(
+        self,
+        auth: AuthManager,
+        authz: AuthzManager,
+        oidc: OidcManager,
+        switch: Switch,
+        allow_redirects: list[str],
+    ) -> None:
+
         self.__auth = auth
         self.__authz = authz
+        self.__oidc = oidc
         self.__switch = switch
         self.__allow_redirects = set(["", *allow_redirects])
 
@@ -150,10 +160,20 @@ class AuthApi:
 
     @exposed_http("POST", "/auth/logout", allow_usc=False)
     async def __logout_handler(self, req: Request) -> Response:
+        end_session_url = None
         if self.__auth.is_auth_enabled():
             token = valid_auth_token(req.cookies.get(_COOKIE_AUTH_TOKEN, ""))
-            self.__auth.logout(token)
-        return make_json_response()
+            oidc_id_token = self.__auth.logout(token)
+            if oidc_id_token and self.__oidc.is_oidc_enabled():
+                # RP-initiated logout: also end the session at the IdP, not
+                # just locally -- otherwise "Sign in with SSO" silently
+                # re-authenticates via the IdP's still-live session without
+                # ever prompting for credentials again, which looks like
+                # logout did nothing.
+                end_session_url = self.__oidc.build_end_session_url(oidc_id_token)
+        resp = make_json_response({"end_session_url": end_session_url})
+        resp.del_cookie(_COOKIE_AUTH_TOKEN)
+        return resp
 
     # XXX: This handle is used for access control so it should NEVER allow access by socket credentials
     @exposed_http("GET", "/auth/check", allow_usc=False)

@@ -132,6 +132,7 @@ async def _manager(aiohttp_server: Any) -> AsyncGenerator[tuple[OidcManager, dic
         client_id=_CLIENT_ID,
         client_secret=_CLIENT_SECRET,
         redirect_uri="http://kvmd.local/api/auth/oidc/callback",
+        post_logout_redirect_uri="http://kvmd.local/login/",
         scopes=["openid", "profile", "groups"],
         username_claim="preferred_username",
         groups_claim="groups",
@@ -162,11 +163,12 @@ async def test_ok__happy_path(aiohttp_server: Any) -> None:
         (state, nonce) = _extract_state_and_nonce(url)
         nonces["code1"] = nonce
 
-        (identity, redirect) = (await mgr.handle_callback("code1", state))
+        (identity, redirect, id_token) = (await mgr.handle_callback("code1", state))
         assert isinstance(identity, AuthIdentity)
         assert identity.user == "alice"
         assert set(identity.groups) == {"admins", "ops"}
         assert redirect == "/kvm"
+        assert id_token
 
 
 @pytest.mark.asyncio
@@ -226,7 +228,7 @@ async def test_fail__nonce_mismatch(aiohttp_server: Any) -> None:
 async def test_ok__disabled() -> None:
     mgr = OidcManager(
         enabled=False,
-        issuer="", client_id="", client_secret="", redirect_uri="",
+        issuer="", client_id="", client_secret="", redirect_uri="", post_logout_redirect_uri="",
         scopes=[], username_claim="preferred_username", groups_claim="groups",
         verify_ssl=True, timeout=5.0,
     )
@@ -370,7 +372,8 @@ async def test_ok__jwks_key_rotation_triggers_refresh_and_succeeds(aiohttp_serve
 
     mgr = OidcManager(
         enabled=True, issuer=issuer_holder["issuer"], client_id=_CLIENT_ID, client_secret=_CLIENT_SECRET,
-        redirect_uri="http://kvmd.local/api/auth/oidc/callback", scopes=["openid", "profile", "groups"],
+        redirect_uri="http://kvmd.local/api/auth/oidc/callback", post_logout_redirect_uri="",
+        scopes=["openid", "profile", "groups"],
         username_claim="preferred_username", groups_claim="groups", verify_ssl=True, timeout=5.0,
     )
     await mgr.sysprep()  # caches JWKS with only pub_a at this point
@@ -386,8 +389,92 @@ async def test_ok__jwks_key_rotation_triggers_refresh_and_succeeds(aiohttp_serve
         (state, nonce) = _extract_state_and_nonce(url)
         nonces["code1"] = nonce
 
-        (identity, redirect) = (await mgr.handle_callback("code1", state))
+        (identity, redirect, _id_token) = (await mgr.handle_callback("code1", state))
         assert identity.user == "alice"
         assert redirect == "/kvm"
+    finally:
+        await mgr.cleanup()
+
+
+# =====
+# RP-initiated logout (https://openid.net/specs/openid-connect-rpinitiated-1_0.html).
+# end_session_endpoint is OPTIONAL per the OIDC discovery spec -- these tests
+# cover both an IdP that publishes one (most do, including Keycloak) and one
+# that doesn't, since build_end_session_url() must degrade to "no IdP logout
+# possible" rather than build a broken URL.
+# =====
+
+@pytest.mark.asyncio
+async def test_ok__build_end_session_url_absent_when_not_supported(aiohttp_server: Any) -> None:
+    # _make_idp_app's discovery document has no end_session_endpoint.
+    async with _manager(aiohttp_server) as (mgr, nonces, _overrides):
+        url = mgr.build_authorize_url(redirect="/kvm")
+        (state, nonce) = _extract_state_and_nonce(url)
+        nonces["code1"] = nonce
+        (_identity, _redirect, id_token) = (await mgr.handle_callback("code1", state))
+
+        assert mgr.build_end_session_url(id_token) is None
+
+
+@pytest.mark.asyncio
+async def test_ok__build_end_session_url_when_supported(aiohttp_server: Any) -> None:
+    (pub, priv) = _make_key()
+    issuer_holder: dict = {}
+    nonces: dict = {}
+
+    app = web.Application()
+
+    async def discovery(_: web.Request) -> web.Response:
+        issuer = issuer_holder["issuer"]
+        return web.json_response({
+            "authorization_endpoint": f"{issuer}/authorize",
+            "token_endpoint": f"{issuer}/token",
+            "jwks_uri": f"{issuer}/jwks",
+            "end_session_endpoint": f"{issuer}/logout",
+        })
+
+    async def jwks(_: web.Request) -> web.Response:
+        return web.json_response({"keys": [pub]})
+
+    async def token(req: web.Request) -> web.Response:
+        data = await req.post()
+        code = str(data["code"])
+        nonce = nonces.get(code, "unknown-nonce")
+        now = int(time.time())
+        payload = {
+            "iss": issuer_holder["issuer"], "aud": _CLIENT_ID, "sub": "u1",
+            "exp": now + 300, "iat": now, "nonce": nonce, "preferred_username": "alice",
+        }
+        header = {"alg": "RS256", "kid": pub["kid"]}
+        id_token = jose_jwt.encode(header, payload, priv).decode()
+        return web.json_response({"access_token": "at", "id_token": id_token, "token_type": "Bearer"})
+
+    app.router.add_get("/.well-known/openid-configuration", discovery)
+    app.router.add_get("/jwks", jwks)
+    app.router.add_post("/token", token)
+
+    server = await aiohttp_server(app)
+    issuer_holder["issuer"] = f"http://localhost:{server.port}"
+
+    mgr = OidcManager(
+        enabled=True, issuer=issuer_holder["issuer"], client_id=_CLIENT_ID, client_secret=_CLIENT_SECRET,
+        redirect_uri="http://kvmd.local/api/auth/oidc/callback",
+        post_logout_redirect_uri="http://kvmd.local/login/",
+        scopes=["openid", "profile"], username_claim="preferred_username", groups_claim="groups",
+        verify_ssl=True, timeout=5.0,
+    )
+    await mgr.sysprep()
+    try:
+        url = mgr.build_authorize_url(redirect="/kvm")
+        (state, nonce) = _extract_state_and_nonce(url)
+        nonces["code1"] = nonce
+        (_identity, _redirect, id_token) = (await mgr.handle_callback("code1", state))
+
+        end_session_url = mgr.build_end_session_url(id_token)
+        assert end_session_url is not None
+        assert end_session_url.startswith(f"{issuer_holder['issuer']}/logout?")
+        qs = parse_qs(urlparse(end_session_url).query)
+        assert qs["id_token_hint"][0] == id_token
+        assert qs["post_logout_redirect_uri"][0] == "http://kvmd.local/login/"
     finally:
         await mgr.cleanup()

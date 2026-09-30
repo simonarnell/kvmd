@@ -366,6 +366,40 @@ async def test_ok__login_external_groups(tmpdir) -> None:  # type: ignore
         assert manager.get_session_groups("nope") == ()
 
 
+@pytest.mark.asyncio
+async def test_ok__logout_returns_oidc_id_token(tmpdir) -> None:  # type: ignore
+    # logout() hands back the terminated session's OIDC id_token so the
+    # caller (AuthApi's /auth/logout handler) can drive RP-initiated logout
+    # at the IdP -- without this, "logout" only ends kvmd's own session and
+    # the IdP's still-live session silently re-authenticates on the next
+    # "Sign in with SSO" click.
+    path = os.path.abspath(str(tmpdir.join("htpasswd")))
+    htpasswd = KvmdHtpasswdFile(path, new=True)
+    htpasswd.set_password("admin", "pass")
+    htpasswd.save()
+
+    async with _get_configured_manager([], path) as manager:
+        # A password-based session carries no id_token.
+        token1 = await manager.login("admin", "pass", 0)
+        assert token1 is not None
+        assert manager.logout(token1) == ""
+
+        # An OIDC-originated session round-trips whatever id_token it was
+        # minted with, including through a WS-session renewal cycle.
+        identity = AuthIdentity(user="bob", groups=("admins",))
+        token2 = await manager.login_external(identity, 0, oidc_id_token="the-raw-id-token")
+        manager.start_ws_session(token2)
+        manager.stop_ws_session(token2)
+        assert manager.logout(token2) == "the-raw-id-token"
+
+        # Once logged out, the token is gone -- calling logout() again
+        # (e.g. a double-click) returns "" rather than a stale id_token.
+        assert manager.logout(token2) == ""
+
+        # Unknown token: no id_token, no crash.
+        assert manager.logout("nope") == ""
+
+
 class _GroupsAuthManager(AuthManager):
     """
     Stands in for any auth backend that surfaces group membership (LDAP's

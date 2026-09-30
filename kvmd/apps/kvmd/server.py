@@ -193,7 +193,7 @@ class KvmdServer(HttpServer):  # pylint: disable=too-many-arguments,too-many-ins
         self.__hid_api = HidApi(hid, keymap_path, authz, switch)  # Ugly hack to get keymaps state
         self.__apis: list[object] = [
             self,
-            AuthApi(auth, authz, switch, allow_redirects),
+            AuthApi(auth, authz, oidc, switch, allow_redirects),
             OidcApi(oidc, auth, allow_redirects),
             InfoApi(im),
             LogApi(log_reader),

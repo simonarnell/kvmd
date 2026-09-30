@@ -84,12 +84,12 @@ class OidcApi:
             raise ForbiddenError()
 
         try:
-            (identity, redirect) = (await self.__oidc.handle_callback(code, state))
+            (identity, redirect, id_token) = (await self.__oidc.handle_callback(code, state))
         except OidcError as ex:
             get_logger(0).error("oidc: callback rejected: %s", ex)
             raise ForbiddenError()  # pylint: disable=raise-missing-from
 
-        token = await self.__auth.login_external(identity, expire=0)
+        token = await self.__auth.login_external(identity, expire=0, oidc_id_token=id_token)
 
         # The whole OIDC flow is a full-page browser round trip (login page ->
         # IdP -> here), never an XHR/fetch call, so the callback must always

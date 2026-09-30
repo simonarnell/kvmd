@@ -44,11 +44,12 @@ from ...htserver import RequestUnixCredentials
 # =====
 @dataclasses.dataclass(frozen=True)
 class _Session:
-    user:       str
-    expire_req: int
-    expire_ts:  int
-    ws_started: int
-    groups:     tuple[str, ...] = ()
+    user:          str
+    expire_req:    int
+    expire_ts:     int
+    ws_started:    int
+    groups:        tuple[str, ...] = ()
+    oidc_id_token: str = ""
 
     def __post_init__(self) -> None:
         assert self.user == self.user.strip()
@@ -173,12 +174,12 @@ class AuthManager:  # pylint: disable=too-many-arguments,too-many-instance-attri
             return self.__create_session(identity, expire)
         return None
 
-    async def login_external(self, identity: AuthIdentity, expire: int) -> str:
+    async def login_external(self, identity: AuthIdentity, expire: int, oidc_id_token: str="") -> str:
         assert expire >= 0
         assert self.__enabled
-        return self.__create_session(identity, expire)
+        return self.__create_session(identity, expire, oidc_id_token)
 
-    def __create_session(self, identity: AuthIdentity, expire: int) -> str:
+    def __create_session(self, identity: AuthIdentity, expire: int, oidc_id_token: str="") -> str:
         token = self.__make_new_token()
         session = _Session(
             user=identity.user,
@@ -186,6 +187,7 @@ class AuthManager:  # pylint: disable=too-many-arguments,too-many-instance-attri
             expire_ts=self.__make_expire_ts(expire),
             ws_started=0,
             groups=identity.groups,
+            oidc_id_token=oidc_id_token,
         )
         self.__sessions[token] = session
         get_logger(0).info("Logged in user %r; expire=%s, sessions_now=%d",
@@ -241,16 +243,22 @@ class AuthManager:  # pylint: disable=too-many-arguments,too-many-instance-attri
             if session.user == user
         )
 
-    def logout(self, token: str) -> None:
+    def logout(self, token: str) -> str:
+        # Returns the terminated token's OIDC id_token (for RP-initiated
+        # logout -- see kvmd.apps.kvmd.oidc.OidcManager.build_end_session_url()),
+        # or "" if the token was unknown or wasn't an OIDC-originated session.
         assert self.__enabled
+        oidc_id_token = ""
         if token in self.__sessions:
             user = self.__sessions[token].user
+            oidc_id_token = self.__sessions[token].oidc_id_token
             count = 0
             for (key_t, session) in list(self.__sessions.items()):
                 if session.user == user:
                     count += 1
                     del self.__sessions[key_t]
             get_logger(0).info("Logged out user %r; sessions_closed=%d", user, count)
+        return oidc_id_token
 
     def check(self, token: str) -> (str | None):
         assert self.__enabled
@@ -299,6 +307,7 @@ class AuthManager:  # pylint: disable=too-many-arguments,too-many-instance-attri
                     expire_ts=expire_ts,
                     ws_started=ws_started,
                     groups=session.groups,
+                    oidc_id_token=session.oidc_id_token,
                 )
 
     async def sysprep(self) -> None:
