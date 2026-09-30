@@ -61,7 +61,7 @@ export function main() {
 
 	initWindowManager();
 
-	tools.el.setOnClick($("open-log-button"), () => tools.windowOpen("api/log?seek=3600&follow=1"));
+	tools.el.setOnClick($("open-log-button"), __clickOpenLogButton);
 
 	tools.storage.bindSimpleSwitch(
 		$("page-full-tab-stream-switch"),
@@ -77,4 +77,22 @@ export function main() {
 	}
 
 	new Session();
+}
+
+function __clickOpenLogButton() {
+	// The log button is shown to every role regardless of the "log"
+	// permission (the frontend has no notion of per-role permissions to
+	// hide it with), and the real log view opens in a new tab via a plain
+	// navigation -- so a straight windowOpen() left a denied user staring
+	// at a bare {"ok":false,...} JSON page with no explanation. Probe with
+	// a cheap non-streaming request first (follow=0 returns immediately,
+	// whether allowed or denied) and only open the real streaming tab on
+	// success.
+	tools.httpGet("api/log", {"seek": 0, "follow": 0}, function(http) {
+		if (http.status === 200) {
+			tools.windowOpen("api/log?seek=3600&follow=1");
+		} else {
+			wm.error("Can't open the log", http.responseText);
+		}
+	});
 }

@@ -179,8 +179,27 @@ function __WindowManager() {
 	/************************************************************************/
 
 	self.info = (html, ...args) => __modalCodeDialog("Info", html, args.join("\n"), true, false);
-	self.error = (html, ...args) => __modalCodeDialog("Error", html, args.join("\n"), true, false);
+	self.error = (html, ...args) => __modalCodeDialog("Error", __addForbiddenHint(html, args), args.join("\n"), true, false);
 	self.confirm = (html, ...args) => __modalCodeDialog("Question", html, args.join("\n"), true, true);
+
+	// Every "X error" call site across the app passes the raw API response
+	// body as one of these args and renders it verbatim below the message
+	// (useful for support/debugging) -- but on its own that's just raw JSON
+	// with no plain-English explanation, particularly jarring for a simple
+	// permission denial. Detect that one specific, common shape and add a
+	// one-line hint above the raw body, without touching any of the 30+
+	// individual wm.error() call sites or hiding the raw response.
+	var __addForbiddenHint = function(html, args) {
+		for (let arg of args) {
+			try {
+				let parsed = JSON.parse(arg);
+				if (parsed && parsed.result && parsed.result.error === "ForbiddenError") {
+					return `${html}<br><br>You don't have permission to do this.`;
+				}
+			} catch { /* Not JSON, or not this shape -- leave html as-is */ }
+		}
+		return html;
+	};
 
 	var __modalCodeDialog = function(header, html, code, ok, cancel) {
 		let create_content = function(el_content) {
