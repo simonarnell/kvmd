@@ -25,6 +25,7 @@
 
 import {tools, $} from "../tools.js";
 import {wm} from "../wm.js";
+import {authz} from "../authz.js";
 
 
 export function Atx(__recorder) {
@@ -47,6 +48,15 @@ export function Atx(__recorder) {
 	};
 
 	/************************************************************************/
+
+	self.applyAuthz = function() {
+		// No-op if no state has arrived yet -- buttons are already disabled
+		// by default in that case, and the first real setState() call
+		// already applies authz inline (see __updateButtons()).
+		if (__state && __state.busy !== undefined) {
+			__updateButtons(!__state.busy);
+		}
+	};
 
 	self.setState = function(state) {
 		if (state) {
@@ -87,6 +97,7 @@ export function Atx(__recorder) {
 	};
 
 	var __updateButtons = function(enabled) {
+		enabled = (enabled && authz.isAllowed("switch.atx"));
 		for (let id of ["atx-power-button", "atx-power-button-long", "atx-reset-button"]) {
 			tools.el.setEnabled($(id), enabled);
 		}

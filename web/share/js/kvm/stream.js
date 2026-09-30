@@ -25,6 +25,7 @@
 
 import {tools, $} from "../tools.js";
 import {wm} from "../wm.js";
+import {authz} from "../authz.js";
 
 import {JanusStreamer} from "./stream_janus.js";
 import {MediaStreamer} from "./stream_media.js";
@@ -203,6 +204,42 @@ export function Streamer() {
 			__janus_imported = avail;
 			cb();
 		});
+	};
+
+	self.applyAuthz = function() {
+		tools.el.setEnabled($("stream-screenshot-button"), authz.isAllowed("snapshot"));
+		self.setHidAllowed(authz.isAllowed("hid"));
+	};
+
+	// A denied "hid" permission isn't enforced with a visible error per
+	// keystroke (that would be extremely noisy -- see
+	// kvmd/apps/kvmd/api/hid.py's __check_hid_allowed(), which silently
+	// drops denied input instead) -- so without this, a viewer-role user
+	// sees an apparently-live, apparently-interactive video stream that
+	// simply never responds to anything they do, with no explanation at
+	// all. This banner is the only user-facing signal for that case.
+	var __el_hid_banner = null;
+
+	self.setHidAllowed = function(allowed) {
+		if (allowed) {
+			if (__el_hid_banner) {
+				__el_hid_banner.remove();
+				__el_hid_banner = null;
+			}
+			return;
+		}
+		if (__el_hid_banner) {
+			return;
+		}
+		__el_hid_banner = document.createElement("div");
+		__el_hid_banner.innerText = "View only — you don't have control access";
+		__el_hid_banner.style.cssText = `
+			position: absolute; top: 0; left: 0; right: 0; z-index: 100;
+			padding: 4px 8px; text-align: center;
+			background: rgba(128, 0, 0, 0.75); color: #fff;
+			font-size: 0.85em; pointer-events: none;
+		`;
+		$("stream-box").appendChild(__el_hid_banner);
 	};
 
 	self.getGeometry = function() {

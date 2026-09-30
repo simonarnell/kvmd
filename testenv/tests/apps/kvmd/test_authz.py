@@ -181,6 +181,72 @@ async def test_debug_trace_shows_raw_opa_request_and_response(aiohttp_server, ca
 
 
 @pytest.mark.asyncio
+async def test_disabled_list_permissions_returns_none() -> None:
+    # None means "don't restrict anything in the UI" -- matches check()'s
+    # own behavior of always allowing everything when authz is disabled.
+    mgr = AuthzManager(
+        enabled=False, opa_url="http://localhost:0/unreachable", opa_timeout=0.1,
+        device_id="test-device", fail_open=False,
+    )
+    result = await mgr.list_permissions("alice", candidate_ports=[0, 1, 2])
+    assert result == {"permissions": None, "activatable_ports": None}
+    await mgr.cleanup()
+
+
+@pytest.mark.asyncio
+async def test_list_permissions_queries_the_package_not_the_allow_rule(aiohttp_server) -> None:  # type: ignore
+    # list_permissions() must hit the bare package path (".../authz"), not
+    # opa_url itself (".../authz/allow") -- that's how effective_permissions
+    # and activatable_ports come back in the same response as the ordinary
+    # allow decision.
+    app = web.Application()
+    seen: dict = {}
+
+    async def handler(req: web.Request) -> web.Response:
+        seen["path"] = req.path
+        body = await req.json()
+        seen["input"] = body["input"]
+        return web.json_response({"result": {
+            "effective_permissions": ["hid", "gpio"],
+            "activatable_ports": [0, 2],
+        }})
+
+    app.router.add_post("/v1/data/kvmd/authz", handler)
+    server = await aiohttp_server(app)
+    opa_url = f"http://localhost:{server.port}/v1/data/kvmd/authz/allow"
+
+    async with _manager(opa_url) as mgr:
+        result = await mgr.list_permissions(
+            "alice", groups=("kvmd-operators",), active_port=1, candidate_ports=[0, 1, 2],
+        )
+
+    assert seen["path"] == "/v1/data/kvmd/authz"
+    assert seen["input"]["user"] == "alice"
+    assert seen["input"]["user_groups"] == ["kvmd-operators"]
+    assert seen["input"]["resource"] == {"active_port": 1}
+    assert seen["input"]["candidate_ports"] == [0, 1, 2]
+    assert result == {"permissions": ["gpio", "hid"], "activatable_ports": [0, 2]}
+
+
+@pytest.mark.asyncio
+async def test_list_permissions_fails_to_empty_on_opa_error_regardless_of_fail_open() -> None:
+    # Unlike check(), this never honors fail_open -- showing too little in
+    # the UI is just friction (the real action is still independently
+    # re-checked), but showing too much on an OPA outage would mislead.
+    for fail_open in (True, False):
+        mgr = AuthzManager(
+            enabled=True, opa_url="http://localhost:1/no-such-server", opa_timeout=0.1,
+            device_id="test-device", fail_open=fail_open,
+        )
+        await mgr.sysprep()
+        try:
+            result = await mgr.list_permissions("alice", candidate_ports=[0, 1])
+            assert result == {"permissions": [], "activatable_ports": []}
+        finally:
+            await mgr.cleanup()
+
+
+@pytest.mark.asyncio
 async def test_audit_log_on_opa_error(caplog) -> None:  # type: ignore
     mgr = AuthzManager(
         enabled=True,

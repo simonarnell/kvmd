@@ -25,6 +25,7 @@
 
 import {tools, $, $$$} from "../tools.js";
 import {wm} from "../wm.js";
+import {authz} from "../authz.js";
 
 import {Keyboard} from "./keyboard.js";
 import {Mouse} from "./mouse.js";
@@ -139,9 +140,10 @@ export function Hid(__getGeometry, __recorder) {
 					__mouse.setState(__state.mouse.online, __state.mouse.absolute, __state.online, __state.busy);
 				}
 				if (state.online !== undefined || state.busy !== undefined) {
-					tools.radio.setEnabled("hid-outputs-keyboard-radio", (__state.online && !__state.busy));
-					tools.radio.setEnabled("hid-outputs-mouse-radio", (__state.online && !__state.busy));
-					tools.el.setEnabled($("hid-connect-switch"), (__state.online && !__state.busy));
+					let allowed = (__state.online && !__state.busy && authz.isAllowed("hid"));
+					tools.radio.setEnabled("hid-outputs-keyboard-radio", allowed);
+					tools.radio.setEnabled("hid-outputs-mouse-radio", allowed);
+					tools.el.setEnabled($("hid-connect-switch"), allowed);
 				}
 			}
 		} else {
@@ -150,8 +152,8 @@ export function Hid(__getGeometry, __recorder) {
 			tools.radio.setEnabled("hid-outputs-mouse-radio", false);
 			tools.el.setEnabled($("hid-connect-switch"), false);
 		}
-		tools.el.setEnabled($("hid-reset-button"), __state);
-		tools.el.setEnabled($("hid-jiggler-switch"), __state);
+		tools.el.setEnabled($("hid-reset-button"), (__state && authz.isAllowed("hid")));
+		tools.el.setEnabled($("hid-jiggler-switch"), (__state && authz.isAllowed("hid")));
 	};
 
 	var __updateKeyboardOutputs = function(outputs) {

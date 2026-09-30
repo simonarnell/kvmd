@@ -26,6 +26,7 @@
 import {ROOT_PREFIX} from "../vars.js";
 import {tools, $} from "../tools.js";
 import {wm} from "../wm.js";
+import {authz} from "../authz.js";
 import {clipboard} from "./clipboard.js";
 
 
@@ -175,7 +176,7 @@ export function Switch() {
 		$("switch-edid-info-monitor-name").innerHTML = ((parsed && parsed.monitor_name) ? tools.escape(parsed.monitor_name) : na);
 		$("switch-edid-info-monitor-serial").innerHTML = ((parsed && parsed.monitor_serial) ? tools.escape(parsed.monitor_serial) : na);
 		$("switch-edid-info-audio").innerHTML = (parsed ? (parsed.audio ? "Yes" : "No") : na);
-		tools.el.setEnabled($("switch-edid-remove-button"), (edid_id && (edid_id !== "default")));
+		tools.el.setEnabled($("switch-edid-remove-button"), (edid_id && (edid_id !== "default") && authz.isAllowed("switch.device.configure")));
 		tools.el.setEnabled($("switch-edid-copy-data-button"), !!edid_id);
 	};
 
@@ -277,9 +278,10 @@ export function Switch() {
 				}
 			}
 			if (!__state.atx || __state.atx.busy[port] !== busy) {
-				tools.el.setEnabled($(`__switch-atx-power-button-p${port}`), !busy);
-				tools.el.setEnabled($(`__switch-atx-power-long-button-p${port}`), !busy);
-				tools.el.setEnabled($(`__switch-atx-reset-button-p${port}`), !busy);
+				let enabled = (!busy && authz.isAllowed("switch.atx"));
+				tools.el.setEnabled($(`__switch-atx-power-button-p${port}`), enabled);
+				tools.el.setEnabled($(`__switch-atx-power-long-button-p${port}`), enabled);
+				tools.el.setEnabled($(`__switch-atx-reset-button-p${port}`), enabled);
 			}
 		}
 		__state.atx = atx;
@@ -442,6 +444,48 @@ export function Switch() {
 		__setLedState($("switch-atx-hdd-led"), "red", false);
 
 		__state.model = model;
+
+		// The port list just (re)arrived or changed -- re-derive permissions
+		// against the current, real port count instead of trusting whatever
+		// was fetched at page load (which may have known nothing about ports
+		// yet, or an outdated count after a switch topology change).
+		let candidate_ports = [];
+		for (let port = 0; port < model.ports.length; ++port) {
+			candidate_ports.push(port);
+		}
+		authz.refresh(candidate_ports, __applyAuthz);
+	};
+
+	var __applyAuthz = function() {
+		if (!__state || !__state.model) {
+			return;
+		}
+		let model = __state.model;
+
+		let a_configure = authz.isAllowed("switch.port.configure");
+		let a_device_configure = authz.isAllowed("switch.device.configure");
+		let a_atx = authz.isAllowed("switch.atx");
+
+		for (let role of ["inactive", "active", "flashing", "beacon", "bootloader"]) {
+			tools.el.setEnabled($(`switch-color-${role}-brightness-slider`), a_device_configure);
+			tools.el.setEnabled($(`switch-color-${role}-input`), a_device_configure);
+			tools.el.setEnabled($(`switch-color-${role}-default-button`), a_device_configure);
+		}
+		tools.el.setEnabled($("switch-edid-add-button"), a_device_configure);
+
+		for (let unit = 0; unit < model.units.length; ++unit) {
+			tools.el.setEnabled($(`__switch-beacon-button-u${unit}`), a_configure);
+			tools.el.setEnabled($(`__switch-beacon-button-d${unit}`), a_configure);
+		}
+
+		for (let port = 0; port < model.ports.length; ++port) {
+			tools.el.setEnabled($(`__switch-port-button-p${port}`), authz.isPortActivatable(port));
+			tools.el.setEnabled($(`__switch-params-button-p${port}`), a_configure);
+			tools.el.setEnabled($(`__switch-beacon-button-p${port}`), a_configure);
+		}
+		// Per-port ATX buttons are also gated on "busy" -- combined directly
+		// in __applyAtx() instead of overwritten here, since ATX state
+		// updates far more often than the model does.
 	};
 
 	var __showParamsDialog = function(port) {

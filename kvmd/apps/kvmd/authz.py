@@ -125,6 +125,64 @@ class AuthzManager:
 
         return allowed
 
+    async def list_permissions(
+        self,
+        user: str,
+        *,
+        groups: tuple[str, ...] = (),
+        active_port: (int | None) = None,
+        candidate_ports: (list[int] | None) = None,
+    ) -> dict:
+        # Cosmetic only -- see effective_permissions/activatable_ports in
+        # authz.rego. A None field means "authz disabled or unavailable,
+        # don't restrict anything in the UI" (real enforcement is untouched
+        # either way); an empty list means "enabled, and you can't do any of
+        # this". On any OPA error, fails to None/empty rather than honoring
+        # the configured fail_open -- showing too little in the UI is just
+        # an extra click of friction (still independently re-checked on the
+        # real action), but showing too much on an outage would actively
+        # mislead the user, which fail_open was never meant to control.
+        candidate_ports = (candidate_ports or [])
+
+        if not self.__enabled:
+            return {"permissions": None, "activatable_ports": None}
+
+        assert self.__session is not None
+        logger = get_logger(0)
+
+        input_data = {
+            "user":            user,
+            "user_groups":     list(groups),
+            "device_id":       self.__device_id,
+            "action":          "",
+            "resource":        {"active_port": active_port},
+            "candidate_ports": candidate_ports,
+        }
+
+        # opa_url points at a single rule (".../authz/allow" by default);
+        # querying the bare package path instead returns every exported
+        # rule in one round trip, including the two above.
+        package_url = self.__opa_url.rsplit("/", 1)[0]
+
+        result: dict = {"permissions": [], "activatable_ports": []}
+        try:
+            async with self.__session.post(
+                package_url,
+                json={"input": input_data},
+                timeout=aiohttp.ClientTimeout(total=self.__opa_timeout),
+            ) as resp:
+                data = await resp.json()
+                pkg = (data.get("result") or {})
+                result = {
+                    "permissions":       sorted(pkg.get("effective_permissions", [])),
+                    "activatable_ports": sorted(pkg.get("activatable_ports", [])),
+                }
+                logger.debug("authz: listed permissions for user=%r: %r", user, result)
+        except Exception as ex:
+            logger.error("authz: OPA unavailable while listing permissions for user=%r: %s", user, ex)
+
+        return result
+
     async def check_or_raise(
         self,
         user: str,

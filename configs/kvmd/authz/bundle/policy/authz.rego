@@ -228,3 +228,42 @@ _action_matches_any(action, perms) if {
     perm != "*"
     startswith(action, perm)
 }
+
+# =====
+# Frontend permission discovery: lets the UI hide/disable controls the
+# caller can't use instead of only discovering that on a failed click. This
+# is cosmetic only -- every real action is still independently re-checked
+# by `allow` above on the actual request, so a stale or wrong answer here
+# is a UX papercut, never a security hole.
+#
+# Reuses `allow` itself (via the `with` keyword to swap in each candidate
+# action/port) rather than re-deriving the role/permission logic, so this
+# can never drift from what a real request would actually decide.
+# =====
+
+# Keep this vocabulary in sync with the `permission=` kwargs across
+# kvmd/apps/kvmd/api/*.py. There's no way to derive it automatically from
+# rego alone -- the real vocabulary only exists in the Python route
+# registrations. switch.port.activate is deliberately excluded: it's
+# evaluated per-port below (activatable_ports), not as a single flat
+# yes/no, since a role can be restricted to a subset of ports.
+_known_actions := {
+    "hid", "gpio", "log", "export", "streamer.view", "snapshot",
+    "switch.atx", "switch.port.navigate", "switch.port.configure",
+    "switch.device.configure", "switch.device.reset",
+    "msd.add", "msd.mount", "msd.delete", "msd.read", "msd.reset",
+}
+
+effective_permissions contains action if {
+    some action in _known_actions
+    allow with input.action as action
+}
+
+# input.candidate_ports is supplied by the caller -- the switch's actual
+# port numbers, which authz data has no independent notion of. Evaluated
+# against whatever input.resource.active_port the caller already sent,
+# same as every other action.
+activatable_ports contains port if {
+    some port in input.candidate_ports
+    allow with input.action as "switch.port.activate" with input.resource.port as port
+}

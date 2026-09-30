@@ -25,6 +25,7 @@
 
 import {tools, $} from "../tools.js";
 import {wm} from "../wm.js";
+import {authz} from "../authz.js";
 import {clipboard} from "./clipboard.js";
 
 
@@ -72,6 +73,10 @@ export function Ocr(__getGeometry) {
 	};
 
 	/************************************************************************/
+
+	self.applyAuthz = function() {
+		tools.el.setEnabled($("stream-ocr-button"), authz.isAllowed("snapshot"));
+	};
 
 	self.setState = function(state) {
 		if (state) {

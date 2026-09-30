@@ -76,6 +76,7 @@ from .switch import Switch
 
 from .api.auth import AuthApi
 from .api.auth import check_request_auth
+from .api.authz import AuthzApi
 from .api.oidc import OidcApi
 
 from .api.info import InfoApi
@@ -194,6 +195,7 @@ class KvmdServer(HttpServer):  # pylint: disable=too-many-arguments,too-many-ins
         self.__apis: list[object] = [
             self,
             AuthApi(auth, authz, oidc, switch, allow_redirects),
+            AuthzApi(authz, switch),
             OidcApi(oidc, auth, allow_redirects),
             InfoApi(im),
             LogApi(log_reader),

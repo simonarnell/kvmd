@@ -26,6 +26,7 @@
 import {ROOT_PREFIX} from "../vars.js";
 import {tools, $, $$} from "../tools.js";
 import {wm} from "../wm.js";
+import {authz} from "../authz.js";
 
 
 export function Gpio(__recorder) {
@@ -73,10 +74,11 @@ export function Gpio(__recorder) {
 	};
 
 	var __updateOutputs = function(outputs) {
+		let allowed = authz.isAllowed("gpio");
 		for (let ch in outputs) {
 			for (let type of ["switch", "button"]) {
 				for (let el of $$(`__gpio-${type}-${ch}`)) {
-					tools.el.setEnabled(el, (outputs[ch].online && !outputs[ch].busy));
+					tools.el.setEnabled(el, (outputs[ch].online && !outputs[ch].busy && allowed));
 				}
 			}
 			for (let el of $$(`__gpio-switch-${ch}`)) {

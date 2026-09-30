@@ -26,6 +26,7 @@
 import {ROOT_PREFIX} from "../vars.js";
 import {tools, $} from "../tools.js";
 import {wm} from "../wm.js";
+import {authz} from "../authz.js";
 
 
 export function Msd() {
@@ -71,6 +72,10 @@ export function Msd() {
 	};
 
 	/************************************************************************/
+
+	self.applyAuthz = function() {
+		__refreshControls();
+	};
 
 	self.setState = function(state) {
 		if (state) {
@@ -135,34 +140,40 @@ export function Msd() {
 		tools.hidden.setVisible($("msd-message-another-user-uploads"), (o && s.uploading && !__http));
 		tools.hidden.setVisible($("msd-message-downloads"), (o && s.downloading));
 
-		tools.radio.setEnabled("msd-sorting-radio", (o && !d.connected && !busy));
-		tools.el.setEnabled($("msd-image-selector"), (o && !d.connected && !busy));
-		tools.el.setEnabled($("msd-download-button"), (o && d.image && !d.connected && !busy));
-		tools.el.setEnabled($("msd-remove-button"), (o && d.image && d.image.removable && !d.connected && !busy));
+		let a_mount = authz.isAllowed("msd.mount");
+		let a_add = authz.isAllowed("msd.add");
+		let a_delete = authz.isAllowed("msd.delete");
+		let a_read = authz.isAllowed("msd.read");
+		let a_reset = authz.isAllowed("msd.reset");
 
-		tools.radio.setEnabled("msd-mode-radio", (o && !d.connected && !busy));
+		tools.radio.setEnabled("msd-sorting-radio", (o && !d.connected && !busy && a_mount));
+		tools.el.setEnabled($("msd-image-selector"), (o && !d.connected && !busy && a_mount));
+		tools.el.setEnabled($("msd-download-button"), (o && d.image && !d.connected && !busy && a_read));
+		tools.el.setEnabled($("msd-remove-button"), (o && d.image && d.image.removable && !d.connected && !busy && a_delete));
+
+		tools.radio.setEnabled("msd-mode-radio", (o && !d.connected && !busy && a_mount));
 		tools.radio.setValue("msd-mode-radio", `${Number(o && d.cdrom)}`);
 
-		tools.el.setEnabled($("msd-rw-switch"), (o && !d.connected && !busy && !d.cdrom && (!d.image || d.image.writable)));
+		tools.el.setEnabled($("msd-rw-switch"), (o && !d.connected && !busy && !d.cdrom && (!d.image || d.image.writable) && a_mount));
 		$("msd-rw-switch").checked = (o && d.rw);
 
-		tools.el.setEnabled($("msd-connect-button"), (o && d.image && !d.connected && !busy));
-		tools.el.setEnabled($("msd-disconnect-button"), (o && d.connected && !busy));
+		tools.el.setEnabled($("msd-connect-button"), (o && d.image && !d.connected && !busy && a_mount));
+		tools.el.setEnabled($("msd-disconnect-button"), (o && d.connected && !busy && a_mount));
 		if (o) {
 			tools.hidden.setVisible($("msd-connect-button"), !d.connected);
 			tools.hidden.setVisible($("msd-disconnect-button"), d.connected);
 		}
 
-		tools.el.setEnabled($("msd-select-new-button"), (o && !d.connected && !__http && !busy));
+		tools.el.setEnabled($("msd-select-new-button"), (o && !d.connected && !__http && !busy && a_add));
 		tools.el.setEnabled($("msd-upload-new-button"),
-			(o && !d.connected && (tools.input.getFile($("msd-new-file")) || $("msd-new-url").value.length > 0) && !busy));
+			(o && !d.connected && (tools.input.getFile($("msd-new-file")) || $("msd-new-url").value.length > 0) && !busy && a_add));
 		tools.el.setEnabled($("msd-abort-new-button"), (o && __http));
 
-		tools.el.setEnabled($("msd-reset-button"), (state && state.enabled && !busy));
+		tools.el.setEnabled($("msd-reset-button"), (state && state.enabled && !busy && a_reset));
 
-		tools.el.setEnabled($("msd-new-file"), (o && !d.connected && !__http && !busy));
-		tools.el.setEnabled($("msd-new-url"), (o && !d.connected && !__http && !busy));
-		tools.el.setEnabled($("msd-new-part-selector"), (o && !d.connected && !__http && !busy));
+		tools.el.setEnabled($("msd-new-file"), (o && !d.connected && !__http && !busy && a_add));
+		tools.el.setEnabled($("msd-new-url"), (o && !d.connected && !__http && !busy && a_add));
+		tools.el.setEnabled($("msd-new-part-selector"), (o && !d.connected && !__http && !busy && a_add));
 
 		if (o && s.uploading) {
 			tools.hidden.setVisible($("msd-new-sub"), false);

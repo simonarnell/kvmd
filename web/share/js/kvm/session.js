@@ -25,6 +25,7 @@
 
 import {tools, $} from "../tools.js";
 import {wm} from "../wm.js";
+import {authz} from "../authz.js";
 
 import {Info} from "./info.js";
 import {Recorder} from "./recorder.js";
@@ -71,20 +72,13 @@ export function Session() {
 
 		tools.httpGet("api/auth/check", null, function(http) {
 			if (http.status === 200) {
-				__ws = new WebSocket(tools.makeWsUrl("api/ws"));
-				__ws.sendHidEvent = (ev) => __sendHidEvent(__ws, ev.event_type, ev.event);
-				__ws.binaryType = "arraybuffer";
-				__ws.onopen = __wsOpenHandler;
-				__ws.onmessage = async (ev) => {
-					if (typeof ev.data === "string") {
-						ev = JSON.parse(ev.data);
-						__wsJsonHandler(ev.event_type, ev.event);
-					} else { // Binary
-						__wsBinHandler(ev.data);
-					}
-				};
-				__ws.onerror = __wsErrorHandler;
-				__ws.onclose = __wsCloseHandler;
+				// Loaded before the WS opens (and before any state push can
+				// arrive) so every component's very first setState() call
+				// already sees real permission data, instead of racing it.
+				authz.refresh([], function() {
+					__applyAuthz();
+					__openWs();
+				});
 			} else if (http.status === 401 || http.status === 403) {
 				window.onbeforeunload = () => null;
 				wm.error("Unexpected logout occured, please login again").then(function() {
@@ -94,6 +88,38 @@ export function Session() {
 				__wsCloseHandler(null);
 			}
 		});
+	};
+
+	var __openWs = function() {
+		__ws = new WebSocket(tools.makeWsUrl("api/ws"));
+		__ws.sendHidEvent = (ev) => __sendHidEvent(__ws, ev.event_type, ev.event);
+		__ws.binaryType = "arraybuffer";
+		__ws.onopen = __wsOpenHandler;
+		__ws.onmessage = async (ev) => {
+			if (typeof ev.data === "string") {
+				ev = JSON.parse(ev.data);
+				__wsJsonHandler(ev.event_type, ev.event);
+			} else { // Binary
+				__wsBinHandler(ev.data);
+			}
+		};
+		__ws.onerror = __wsErrorHandler;
+		__ws.onclose = __wsCloseHandler;
+	};
+
+	// Everything here is either not driven by any WS state push at all (the
+	// Log button), or -- for atx/msd/gpio/hid/streamer -- also reapplied
+	// inline every time those modules process their own state pushes
+	// (session-start sequencing above guarantees authz is already loaded by
+	// then). This call only matters for the former, plus getting the latter
+	// into a correct state immediately rather than waiting for their first
+	// WS push.
+	var __applyAuthz = function() {
+		tools.el.setEnabled($("open-log-button"), authz.isAllowed("log"));
+		__atx.applyAuthz();
+		__msd.applyAuthz();
+		__ocr.applyAuthz();
+		__streamer.applyAuthz();
 	};
 
 	var __wsOpenHandler = function(ev) {

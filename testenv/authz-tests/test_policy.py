@@ -86,6 +86,11 @@ def opa_url() -> Any:
         yield f"http://{host}:{port}/v1/data/kvmd/authz/allow"
 
 
+@pytest.fixture(scope="module")
+def package_url(opa_url: str) -> str:
+    return opa_url.rsplit("/", 1)[0]
+
+
 def _check(
     client: httpx.Client, opa_url: str, user: str, device_id: str, action: str, resource: dict,
     *, user_groups: list[str] | None = None,
@@ -101,6 +106,30 @@ def _check(
     resp = client.post(opa_url, json={"input": input_data})
     resp.raise_for_status()
     return bool(resp.json().get("result", False))
+
+
+def _permissions(
+    client: httpx.Client, package_url: str, user: str, device_id: str, resource: dict,
+    *, user_groups: list[str] | None = None, candidate_ports: list[int] | None = None,
+) -> dict:
+    # effective_permissions()/activatable_ports() live in the same rego
+    # package as allow -- query the bare package path, not .../allow, to
+    # get both back in one response (mirrors AuthzManager.list_permissions()).
+    input_data = {
+        "user": user,
+        "user_groups": (user_groups or []),
+        "device_id": device_id,
+        "action": "",
+        "resource": resource,
+        "candidate_ports": (candidate_ports or []),
+    }
+    resp = client.post(package_url, json={"input": input_data})
+    resp.raise_for_status()
+    result = resp.json().get("result", {})
+    return {
+        "permissions": sorted(result.get("effective_permissions", [])),
+        "activatable_ports": sorted(result.get("activatable_ports", [])),
+    }
 
 
 @pytest.fixture(scope="module")
@@ -323,3 +352,73 @@ def test_group_role_absent_user_groups_key_still_works(client: httpx.Client, opa
     # Omitting "user_groups" from input entirely (older kvmd client) must not
     # error — static per-user roles keep working exactly as before.
     assert _check(client, opa_url, "bob", RACK_B, "hid.write", {"active_port": 0})
+
+
+# =====
+# effective_permissions / activatable_ports: the frontend permission-
+# discovery rules. These reuse `allow` itself via `with`, so a result here
+# is exactly what a real per-action check would decide -- these tests exist
+# to pin the *aggregation*, not re-litigate `allow`'s own logic (already
+# covered above).
+# =====
+
+def test_effective_permissions_standalone(client: httpx.Client, package_url: str) -> None:
+    # bob is a static operator: ["switch.port.activate", "switch.port.navigate",
+    # "switch.atx", "hid", "streamer.view"]. switch.port.activate is excluded
+    # (handled by activatable_ports instead).
+    result = _permissions(client, package_url, "bob", STANDALONE, {"active_port": None})
+    assert result["permissions"] == sorted(["switch.atx", "hid", "streamer.view", "switch.port.navigate"])
+
+
+def test_effective_permissions_switch_mode_no_active_port(client: httpx.Client, package_url: str) -> None:
+    # No port selected yet on a switch device: only the unconditional
+    # navigate-when-null rule fires. operator has no device-global action
+    # (gpio/log/export/...) in this fixture, so nothing else does either.
+    result = _permissions(client, package_url, "bob", RACK_A, {"active_port": None})
+    assert result["permissions"] == ["switch.port.navigate"]
+
+
+def test_effective_permissions_switch_mode_active_port(client: httpx.Client, package_url: str) -> None:
+    # RACK_A port 1: operator has ["streamer.view", "hid", "switch.atx",
+    # "switch.port.activate", "switch.port.navigate"].
+    result = _permissions(client, package_url, "bob", RACK_A, {"active_port": 1})
+    assert result["permissions"] == sorted(["hid", "streamer.view", "switch.atx", "switch.port.navigate"])
+
+
+def test_effective_permissions_superuser_gets_the_full_vocabulary(client: httpx.Client, package_url: str) -> None:
+    result = _permissions(client, package_url, "alice", RACK_A, {"active_port": None})
+    assert result["permissions"] == sorted([
+        "hid", "gpio", "log", "export", "streamer.view", "snapshot",
+        "switch.atx", "switch.port.navigate", "switch.port.configure",
+        "switch.device.configure", "switch.device.reset",
+        "msd.add", "msd.mount", "msd.delete", "msd.read", "msd.reset",
+    ])
+
+
+def test_activatable_ports_respects_the_port_permissions_allowlist(client: httpx.Client, package_url: str) -> None:
+    # RACK_A operator: port 0 only grants "streamer.view" (no activate);
+    # ports 1 and 2 grant "switch.port.activate"; port 3 isn't listed at all.
+    result = _permissions(client, package_url, "bob", RACK_A, {"active_port": None}, candidate_ports=[0, 1, 2, 3])
+    assert result["activatable_ports"] == [1, 2]
+
+
+def test_activatable_ports_no_restriction_when_port_permissions_unconfigured(client: httpx.Client, package_url: str) -> None:
+    # RACK_B has no port_permissions at all: operator's global
+    # switch.port.activate permission applies to every candidate port.
+    result = _permissions(client, package_url, "bob", RACK_B, {"active_port": None}, candidate_ports=[0, 1, 2, 99])
+    assert result["activatable_ports"] == [0, 1, 2, 99]
+
+
+def test_activatable_ports_empty_for_a_role_without_the_permission(client: httpx.Client, package_url: str) -> None:
+    # RACK_A viewer entries only grant "streamer.view" per port, never
+    # switch.port.activate.
+    result = _permissions(client, package_url, "carol", RACK_A, {"active_port": None}, candidate_ports=[0, 1])
+    assert result["activatable_ports"] == []
+
+
+def test_activatable_ports_empty_on_standalone(client: httpx.Client, package_url: str) -> None:
+    # switch.port.activate's own allow rule requires "not standalone" --
+    # there are no ports to activate on a standalone device, regardless of
+    # role or candidate_ports.
+    result = _permissions(client, package_url, "bob", STANDALONE, {"active_port": None}, candidate_ports=[0, 1, 2])
+    assert result["activatable_ports"] == []
