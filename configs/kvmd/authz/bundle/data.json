@@ -1,13 +1,4 @@
 {
-    "_comment": [
-        "Global users and roles. Edit this file to match your organisation.",
-        "Per-device config lives in data/devices/<device-id>/data.json.",
-        "See policy/authz.rego for full documentation of the policy logic.",
-        "",
-        "Roles can come from users{} (static, per-account) and/or group_roles{}",
-        "(dynamic, via IdP group membership claims e.g. from OIDC) — see the",
-        "group_roles example below. A user gets the union of both."
-    ],
     "users": {
         "admin": { "roles": ["admin"] }
     },

@@ -1,5 +1,4 @@
 {
-    "_comment": "Test fixture — not distributed to devices. See configs/kvmd/authz/bundle/ for exemplar data.",
     "users": {
         "alice":   { "roles": ["superuser"] },
         "bob":     { "roles": ["operator"] },

@@ -1,4 +1,4 @@
 {
     "revision": "",
-    "roots": ["kvmd", "users", "roles", "devices"]
+    "roots": ["kvmd", "users", "roles", "devices", "group_roles"]
 }

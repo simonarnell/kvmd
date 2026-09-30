@@ -46,7 +46,13 @@ _HERE = pathlib.Path(__file__).parent
 _REPO_ROOT = _HERE.parent.parent
 _POLICY_DIR = _REPO_ROOT / "configs" / "kvmd" / "authz" / "bundle" / "policy"
 _DATA_DIR = _HERE / "data"
-_MANIFEST = _HERE / "bundle-test.manifest"
+# The real manifest, not a separate test copy -- a hand-maintained duplicate
+# previously had no "roots" restriction at all, so it silently diverged from
+# the real one and never caught data.json using a data root (group_roles)
+# the real manifest didn't declare. That crashed kvmd-authz.service outright
+# on any real deployment using group-derived roles, found only by testing
+# against real hardware.
+_MANIFEST = _REPO_ROOT / "configs" / "kvmd" / "authz" / "bundle" / ".manifest"
 
 RACK_A = "pikvm-rack-a"
 RACK_B = "pikvm-rack-b"
