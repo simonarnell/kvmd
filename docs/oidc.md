@@ -94,6 +94,7 @@ kvmd:
         client_id: kvmd-client
         client_secret: "s3cret-from-your-idp"
         redirect_uri: https://pikvm.example.com/api/auth/oidc/callback
+        post_logout_redirect_uri: https://pikvm.example.com/login/
         scopes: [openid, profile, groups]
         username_claim: preferred_username
         groups_claim: groups
@@ -101,6 +102,18 @@ kvmd:
 ```
 
 After applying this (`systemctl restart kvmd`), the login page at `https://pikvm.example.com/login/` shows a "Sign in with SSO" link below the password form. Clicking it starts the flow above.
+
+## Single Logout
+
+Logging out of kvmd only ever ends kvmd's own session by default — it does not touch your IdP's session, so clicking "Sign in with SSO" again silently re-authenticates with no credential prompt, which looks like logout did nothing. Setting `post_logout_redirect_uri` turns logout into real [RP-initiated logout](https://openid.net/specs/openid-connect-rpinitiated-1_0.html): kvmd redirects the browser through your IdP's own logout endpoint (if it publishes one — `end_session_endpoint` in the discovery document, which not every IdP provides) before landing back on kvmd's login page, ending the IdP's session too.
+
+| Option | Default | Description |
+|---|---|---|
+| `post_logout_redirect_uri` | `""` | Where your IdP sends the browser back to after ending its own session. Typically `https://<your-pikvm-hostname>/login/`. Leave empty to skip RP-initiated logout entirely and fall back to the old kvmd-only behaviour. |
+
+Most providers validate this URI against an explicit allowlist on the client, separately from the login `redirect_uri` — check your provider's client settings for a "post logout redirect URIs" (or similarly named) field and add it there, or logout will fail with an IdP-side error instead of silently doing nothing.
+
+If your IdP doesn't publish `end_session_endpoint` at all, kvmd falls back to the old behaviour automatically — no error, just no IdP-side logout.
 
 ## Claims mapping
 
@@ -148,6 +161,8 @@ This is a top-level option (a sibling of `kvmd:`, not nested under it) and appli
 | "Sign in with SSO" button never appears | `kvmd.oidc.enabled` is `false`, or the page's fetch of `/api/auth/oidc/config` is failing — check the browser console. |
 | Logged in, but landed with no meaningful permissions | The user has no matching role — either add a static per-user entry in the authz bundle, or map their IdP group via `group_roles`. See [AuthZ: group-derived roles](authz.md#group-derived-roles). |
 | Username rejected / login loops back to an error | The claim named by `username_claim` doesn't match kvmd's username regex (`^[a-z_][a-z0-9_-]*$`) — see the note under [Configuration](#configuration). |
+| Logout redirects to an IdP error page instead of back to kvmd | `post_logout_redirect_uri` isn't registered in your IdP's client-level allowlist for post-logout redirects — this is usually a *separate* field from the login `redirect_uri`. See [Single Logout](#single-logout). |
+| Logout "works" but clicking "Sign in with SSO" again logs straight back in with no prompt | Expected if `post_logout_redirect_uri` is unset, or your IdP doesn't publish `end_session_endpoint` — kvmd only ever ends its own session in that case. See [Single Logout](#single-logout). |
 
 ## See also
 

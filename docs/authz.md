@@ -304,6 +304,19 @@ For production, the bundle and `kvmd-authz.service` ship as part of the `kvmd` p
 
 Before trusting a change to enforcement on any specific action, remember the [What's actually enforced](#whats-actually-enforced) table above: the policy test suites above only prove OPA's *decision* is correct for a given input — they don't exercise kvmd's HTTP/WebSocket layer at all. `testenv/tests/apps/kvmd/test_authz_wiring.py` is the one that proves kvmd's request path actually calls OPA in the first place, including a static regression guard (`test_ok__expected_http_actions_are_still_wired`) that fails if any endpoint listed in the table above ever loses its `permission=` annotation; run it (via `tox -e pytest`, or directly) after touching anything in `kvmd/apps/kvmd/api/*.py` or `server.py`'s permission-checking code.
 
+## Permission-aware UI
+
+By default, kvmd's web UI shows every control to every role and only discovers a denial when a click 403s. `GET /api/authz/permissions` lets the frontend ask in advance instead: it returns the caller's own effective permission set (and, for switch devices, which specific ports they may activate), and the UI disables controls the caller can't use rather than showing them as clickable. This is purely cosmetic — the response reuses the exact same policy evaluation as `allow` (via rego's `with` keyword), so it can never drift from what a real request would actually decide, but it is never itself the enforcement boundary; every action is still independently re-checked by OPA on the real request regardless of what the UI shows.
+
+```
+GET /api/authz/permissions?candidate_ports=0,1,2,3
+→ {"permissions": ["hid", "streamer.view", ...] | null, "activatable_ports": [0, 2] | null}
+```
+
+`candidate_ports` is supplied by the caller — the switch's real port numbers, which the authz bundle has no independent knowledge of. A `null` field (rather than an array) means authz is disabled server-side, or the request failed — the UI treats that as "don't restrict anything," matching what a real request would do in both cases.
+
+A role whose permissions follow the currently active port (most of them do — see [What's actually enforced](#whats-actually-enforced)) will see the UI update live as the active port changes, including when switched by someone else or something else entirely, not just by the logged-in user themselves. A role denied `hid` sees a "View only" banner across the video stream, since denied keyboard/mouse input is dropped silently server-side rather than erroring on every keystroke — the banner is the only user-facing signal that a session is view-only.
+
 ## Audit logging
 
 Every authz decision — allowed or denied, including OPA-unreachable fail-open/fail-closed outcomes — is written to the `kvmd.audit` logger:
