@@ -41,6 +41,23 @@ export var authz = new function() {
 
 	var __permissions = null;
 	var __activatable_ports = null;
+	var __subscribers = [];
+
+	// Every module with its own authz-driven UI state (atx.js, msd.js,
+	// ocr.js, stream.js, switch.js, ...) subscribes its own re-apply
+	// function once at init, instead of session.js having to remember to
+	// call each one individually from every place a refresh can happen
+	// (page load, a switch's port model changing, its active port
+	// changing, ...). A refresh triggered from any one of those places
+	// then correctly re-applies everyone, not just whoever triggered it --
+	// found the hard way: switching the active port on a real switch-mode
+	// device used to leave every OTHER module's UI (the HID "view only"
+	// banner, Log/Screenshot buttons, ATX, MSD, GPIO) showing stale
+	// permissions from whatever port was active at page load, since only
+	// switch.js's own buttons were being re-applied on that refresh path.
+	self.subscribe = function(cb) {
+		__subscribers.push(cb);
+	};
 
 	self.refresh = function(candidate_ports, cb) {
 		let params = null;
@@ -54,6 +71,9 @@ export var authz = new function() {
 					__permissions = result["permissions"];
 					__activatable_ports = result["activatable_ports"];
 				} catch { /* Leave whatever we had before -- fail open on the UI hint itself */ }
+			}
+			for (let sub of __subscribers) {
+				sub();
 			}
 			if (cb) {
 				cb();

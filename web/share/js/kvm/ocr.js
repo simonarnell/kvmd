@@ -70,6 +70,8 @@ export function Ocr(__getGeometry) {
 		$("stream-ocr-window").onmousedown = __startSelection;
 		$("stream-ocr-window").onmousemove = __changeSelection;
 		$("stream-ocr-window").onmouseup = __endSelection;
+
+		authz.subscribe(self.applyAuthz);
 	};
 
 	/************************************************************************/

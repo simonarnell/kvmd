@@ -69,6 +69,8 @@ export function Msd() {
 		tools.el.setOnClick($("msd-disconnect-button"), () => __clickConnectButton(false));
 
 		tools.el.setOnClick($("msd-reset-button"), __clickResetButton);
+
+		authz.subscribe(self.applyAuthz);
 	};
 
 	/************************************************************************/

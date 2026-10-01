@@ -55,6 +55,8 @@ export function Switch() {
 			el_brightness.onchange = $(`switch-color-${role}-input`).onchange = tools.partial(__selectColor, role);
 			tools.el.setOnClick($(`switch-color-${role}-default-button`), tools.partial(__clickSetDefaultColorButton, role));
 		}
+
+		authz.subscribe(self.applyAuthz);
 	};
 
 	/************************************************************************/
@@ -307,6 +309,15 @@ export function Switch() {
 	var __applySummary = function(summary) {
 		let active = summary.active_port;
 		if (!__state.summary || __state.summary.active_port !== active) {
+			// Almost every permission (hid, streamer.view, switch.atx, ...)
+			// follows whichever port is currently active -- re-derive them
+			// the moment the active port itself changes, not just when the
+			// port model/topology changes. Without this, switching ports on
+			// a real switch-mode device left every module's UI (the HID
+			// "view only" banner included) showing stale permissions from
+			// whatever port was active when the page loaded.
+			authz.refresh(__candidatePorts());
+
 			let caption = "";
 			if (active < 0 || active >= __state.model.ports.length) {
 				caption = "N/A";
@@ -449,14 +460,20 @@ export function Switch() {
 		// against the current, real port count instead of trusting whatever
 		// was fetched at page load (which may have known nothing about ports
 		// yet, or an outdated count after a switch topology change).
-		let candidate_ports = [];
-		for (let port = 0; port < model.ports.length; ++port) {
-			candidate_ports.push(port);
-		}
-		authz.refresh(candidate_ports, __applyAuthz);
+		authz.refresh(__candidatePorts());
 	};
 
-	var __applyAuthz = function() {
+	var __candidatePorts = function() {
+		let candidate_ports = [];
+		if (__state && __state.model) {
+			for (let port = 0; port < __state.model.ports.length; ++port) {
+				candidate_ports.push(port);
+			}
+		}
+		return candidate_ports;
+	};
+
+	self.applyAuthz = function() {
 		if (!__state || !__state.model) {
 			return;
 		}

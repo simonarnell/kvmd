@@ -122,6 +122,8 @@ export function Streamer() {
 		$("stream-window").organize_hook = __organizeHook;
 
 		document.addEventListener("visibilitychange", __visibilityHook);
+
+		authz.subscribe(self.applyAuthz);
 	};
 
 	/************************************************************************/

@@ -45,6 +45,8 @@ export function Atx(__recorder) {
 		tools.el.setOnClick($("atx-power-button"), () => __clickAtx("power"));
 		tools.el.setOnClick($("atx-power-button-long"), () => __clickAtx("power_long"));
 		tools.el.setOnClick($("atx-reset-button"), () => __clickAtx("reset"));
+
+		authz.subscribe(self.applyAuthz);
 	};
 
 	/************************************************************************/

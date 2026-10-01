@@ -61,6 +61,7 @@ export function Session() {
 	var __switch = new Switch();
 
 	var __init__ = function() {
+		authz.subscribe(() => tools.el.setEnabled($("open-log-button"), authz.isAllowed("log")));
 		__streamer.ensureDeps(() => __startSession());
 	};
 
@@ -75,10 +76,10 @@ export function Session() {
 				// Loaded before the WS opens (and before any state push can
 				// arrive) so every component's very first setState() call
 				// already sees real permission data, instead of racing it.
-				authz.refresh([], function() {
-					__applyAuthz();
-					__openWs();
-				});
+				// Every module subscribed itself to authz (see each one's
+				// own __init__/authz.subscribe call) -- this refresh alone
+				// is enough to put all of them in the correct initial state.
+				authz.refresh([], __openWs);
 			} else if (http.status === 401 || http.status === 403) {
 				window.onbeforeunload = () => null;
 				wm.error("Unexpected logout occured, please login again").then(function() {
@@ -105,21 +106,6 @@ export function Session() {
 		};
 		__ws.onerror = __wsErrorHandler;
 		__ws.onclose = __wsCloseHandler;
-	};
-
-	// Everything here is either not driven by any WS state push at all (the
-	// Log button), or -- for atx/msd/gpio/hid/streamer -- also reapplied
-	// inline every time those modules process their own state pushes
-	// (session-start sequencing above guarantees authz is already loaded by
-	// then). This call only matters for the former, plus getting the latter
-	// into a correct state immediately rather than waiting for their first
-	// WS push.
-	var __applyAuthz = function() {
-		tools.el.setEnabled($("open-log-button"), authz.isAllowed("log"));
-		__atx.applyAuthz();
-		__msd.applyAuthz();
-		__ocr.applyAuthz();
-		__streamer.applyAuthz();
 	};
 
 	var __wsOpenHandler = function(ev) {

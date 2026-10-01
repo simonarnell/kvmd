@@ -79,6 +79,8 @@ export function Hid(__getGeometry, __recorder) {
 		tools.storage.bindSimpleSwitch($("hid-sysrq-ask-switch"), "hid.sysrq.ask", true);
 
 		tools.el.setOnClick($("hid-jiggler-switch"), __clickJigglerSwitch);
+
+		authz.subscribe(self.applyAuthz);
 	};
 
 	/************************************************************************/
@@ -139,21 +141,27 @@ export function Hid(__getGeometry, __recorder) {
 				) {
 					__mouse.setState(__state.mouse.online, __state.mouse.absolute, __state.online, __state.busy);
 				}
-				if (state.online !== undefined || state.busy !== undefined) {
-					let allowed = (__state.online && !__state.busy && authz.isAllowed("hid"));
-					tools.radio.setEnabled("hid-outputs-keyboard-radio", allowed);
-					tools.radio.setEnabled("hid-outputs-mouse-radio", allowed);
-					tools.el.setEnabled($("hid-connect-switch"), allowed);
-				}
 			}
 		} else {
 			__state = null;
-			tools.radio.setEnabled("hid-outputs-keyboard-radio", false);
-			tools.radio.setEnabled("hid-outputs-mouse-radio", false);
-			tools.el.setEnabled($("hid-connect-switch"), false);
 		}
-		tools.el.setEnabled($("hid-reset-button"), (__state && authz.isAllowed("hid")));
-		tools.el.setEnabled($("hid-jiggler-switch"), (__state && authz.isAllowed("hid")));
+		self.applyAuthz();
+	};
+
+	// Re-derives every authz-gated control from the last known state --
+	// called both from setState() above and (via authz.subscribe(), see
+	// __init__) whenever permissions themselves change, which on a real
+	// switch-mode device can happen without any new HID state push at all
+	// (e.g. switching the active port changes "hid" without kvmd ever
+	// sending a new "hid" WS event).
+	self.applyAuthz = function() {
+		let hid_ok = authz.isAllowed("hid");
+		let online = !!(__state && __state.online && !__state.busy && hid_ok);
+		tools.radio.setEnabled("hid-outputs-keyboard-radio", online);
+		tools.radio.setEnabled("hid-outputs-mouse-radio", online);
+		tools.el.setEnabled($("hid-connect-switch"), online);
+		tools.el.setEnabled($("hid-reset-button"), !!(__state && hid_ok));
+		tools.el.setEnabled($("hid-jiggler-switch"), !!(__state && hid_ok));
 	};
 
 	var __updateKeyboardOutputs = function(outputs) {
