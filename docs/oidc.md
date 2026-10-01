@@ -2,7 +2,7 @@
 
 kvmd can authenticate users against any standards-compliant [OpenID Connect](https://openid.net/specs/openid-connect-core-1_0.html) (OIDC) identity provider (IdP), as an alternative — or complement — to the built-in `htpasswd`/LDAP/RADIUS/PAM login backends. This is a pure Authentication (AuthN) feature: it establishes *who* a user is and what groups they belong to. Combined with the [AuthZ model](authz.md), those group memberships can also drive *what* a user is allowed to do.
 
-This guide is provider-agnostic. It has been verified end-to-end against [Keycloak](https://www.keycloak.org/), but nothing in kvmd's implementation is Keycloak-specific — any provider that implements OIDC Discovery, Authorization Code + PKCE, and standard ID tokens works identically (Okta, Auth0, Azure AD / Entra ID, Authentik, ZITADEL, Google Workspace, etc.).
+This guide is provider-agnostic. It has been verified end-to-end against [Keycloak](https://www.keycloak.org/), but nothing in kvmd's implementation is Keycloak-specific — any provider that implements OIDC Discovery, Authorization Code + PKCE, and standard ID tokens works identically (Okta, Auth0, Azure AD / Entra ID, Authentik, ZITADEL, Google Workspace, AD FS (Windows Server 2019+ — PKCE support was added after the original 2016 release), etc.).
 
 ## How it works
 
@@ -124,6 +124,7 @@ Different providers expose group membership under different claim names, and not
 | Keycloak | Custom scope (e.g. `groups`) with a "Group Membership" protocol mapper attached | Not enabled by default — you add the mapper and assign the scope to the client. |
 | Okta | `groups` scope, `groups` claim | Enable the "Groups claim filter" on the authorization server. |
 | Azure AD / Entra ID | `groups` claim (no separate scope) | Group *names* require configuring the app manifest (`groupMembershipClaims`) — by default Azure AD emits group object IDs, not names, which will not read as a meaningful role name. |
+| AD FS (Windows Server 2019+) | `group` claim, via a Claims Issuance Policy | Not emitted by default — add a rule mapping `Token-Groups as SIDs` (or AD group membership) to a claim, and assign the resulting scope to the client. PKCE (which this implementation always sends) requires 2019+; the original Server 2016 release doesn't support it. |
 | Auth0 | Custom claim via a Rule/Action (namespaced, e.g. `https://kvmd/groups`) | Auth0 does not emit a `groups` claim natively; you add one. |
 | Generic / custom IdP | Whatever your provider calls it | Set `groups_claim` to match. |
 
