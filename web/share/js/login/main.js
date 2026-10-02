@@ -29,6 +29,13 @@ import {wm, initWindowManager} from "../wm.js";
 import {ROOT_PREFIX} from "../vars.js";
 
 
+// How long __trySilentOidc() waits for the IdP before giving up and
+// showing the ordinary login form anyway -- long enough for a real round
+// trip to a real IdP, short enough that a genuinely unreachable IdP doesn't
+// leave a visitor staring at a blank page for long.
+const __SILENT_TIMEOUT_MS = 5000;
+
+
 export function main() {
 	if (checkBrowser(null, null)) {
 		initWindowManager();
@@ -50,16 +57,19 @@ export function main() {
 
 		tools.el.setOnClick($("login-oidc-button"), __loginOidc);
 		tools.httpGet("api/auth/oidc/config", null, function(http) {
+			let enabled = false;
 			if (http.status === 200) {
-				let enabled = false;
 				try {
 					enabled = JSON.parse(http.responseText)["result"]["enabled"];
 				} catch { /* Nah */ }
-				if (enabled) {
-					$("login-oidc-row").hidden = false;
-					$("login-oidc-row-2").hidden = false;
-					__trySilentOidc();
-				}
+			}
+			if (enabled) {
+				$("login-oidc-row").hidden = false;
+				$("login-oidc-row-2").hidden = false;
+				__trySilentOidc();
+			} else {
+				// No check to wait for -- nothing kept the form hidden for.
+				__revealLoginForm();
 			}
 		});
 
@@ -71,25 +81,56 @@ function __loginOidc() {
 	tools.currentOpen("api/auth/oidc/login");
 }
 
+function __revealLoginForm() {
+	// "visible", not "" -- the hidden state is a stylesheet rule
+	// (index.html's inline <style>, applied before any script runs), not an
+	// inline style this page ever set itself, so there's no inline value to
+	// clear back to.
+	$("login-box").style.visibility = "visible";
+}
+
 function __trySilentOidc() {
 	// A walk-up-already-signed-in check: ask the IdP for an existing session
-	// with no interactive page, via a hidden iframe so this page's own login
-	// form stays the visible default the whole time. kvmd's callback sends a
-	// failed check back to /login/ (see OidcApi.__callback_handler) -- a real
-	// page load, same origin as this one, so its resulting location is
-	// readable directly once the iframe's done, no postMessage needed. If
-	// it's anywhere else, the check succeeded and the session cookie is
-	// already set: follow it with a real top-level navigation, the same one
-	// a successful __loginOidc() click would end up at.
+	// with no interactive page. The login form stays hidden (see index.html's
+	// inline style) while this runs, so a user who's already signed in with
+	// the IdP elsewhere never sees it flash up before this redirects them
+	// away -- only a user it comes back negative for (or that takes long
+	// enough to hit __SILENT_TIMEOUT_MS below) sees it at all.
+	//
+	// Driven through a hidden iframe, not a visible top-level redirect.
+	// kvmd's callback sends a failed check back to /login/ (see
+	// OidcApi.__callback_handler) -- a real page load, same origin as this
+	// one, so its resulting location is readable directly once the iframe's
+	// done, no postMessage needed. If it's anywhere else, the check
+	// succeeded and the session cookie is already set: follow it with a
+	// real top-level navigation, the same one a successful __loginOidc()
+	// click would end up at.
+	let revealed = false;
+	let reveal = function() {
+		if (!revealed) {
+			revealed = true;
+			__revealLoginForm();
+		}
+	};
+
+	// Safety net: if the hidden iframe never fires load (a network hiccup
+	// reaching the IdP, say), don't leave the page permanently blank --
+	// show the ordinary form after a few seconds, same as if the check had
+	// come back negative.
+	setTimeout(reveal, __SILENT_TIMEOUT_MS);
+
 	let iframe = $("login-oidc-silent");
 	iframe.onload = function() {
 		let dest;
 		try {
 			dest = iframe.contentWindow.location.href;
 		} catch {
-			return; // Cross-origin somehow -- not expected same-origin, just leave the login form showing.
+			reveal(); // Cross-origin somehow -- not expected same-origin, just show the login form.
+			return;
 		}
-		if (!dest.endsWith("/login/")) {
+		if (dest.endsWith("/login/")) {
+			reveal();
+		} else {
 			window.location.href = dest; // Already a fully resolved URL -- no ROOT_PREFIX to add back.
 		}
 	};

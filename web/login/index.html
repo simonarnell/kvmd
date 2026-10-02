@@ -40,6 +40,20 @@
     <link rel="stylesheet" href="../share/css/radio.css">
     <link rel="stylesheet" href="../share/css/login/login.css">
     <link rel="stylesheet" href="../share/css/user.css">
+    <style>
+      /*
+        Hidden until login/main.js reveals it (inline and before any
+        external stylesheet, so there's no gap for it to flash visible in):
+        when OIDC is enabled, the form stays hidden while the silent
+        (prompt=none) walk-up check runs, so a user who's already signed in
+        with the IdP elsewhere never sees it at all -- just the already-
+        authenticated page it redirects to. Revealed immediately if OIDC
+        is disabled, or once the silent check comes back negative. See
+        main()/__trySilentOidc() and __revealLoginForm()'s own safety
+        timeout, in case the check never resolves for some reason.
+      */
+      #login-box { visibility: hidden; }
+    </style>
     <script type="module">import {setRootPrefix} from "../share/js/vars.js";
       setRootPrefix("../");
       import {main} from "../share/js/login/main.js";
