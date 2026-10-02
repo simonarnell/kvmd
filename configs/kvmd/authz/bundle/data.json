@@ -3,8 +3,8 @@
         "admin": { "roles": ["admin"] }
     },
     "group_roles": {
-        "kvmd-admins": ["admin"],
-        "kvmd-operators": ["operator"]
+        "admins": ["admin"],
+        "operators": ["operator"]
     },
     "roles": {
         "admin": {
