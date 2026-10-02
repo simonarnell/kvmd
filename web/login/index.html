@@ -126,5 +126,14 @@
         Please turn it off to continue and reload the page.
       </li>
     </ul>
+    <!--
+      Hidden, not used unless OIDC is enabled: a silent (prompt=none) check
+      for an existing IdP session, so a user who's already signed in with the
+      IdP elsewhere doesn't have to click "Sign in with SSO" by hand. See
+      login/main.js's __trySilentOidc(). Same-origin with this page (the kvmd
+      backend's own callback redirects it), so its resulting location is
+      readable directly, no postMessage needed.
+    -->
+    <iframe id="login-oidc-silent" hidden></iframe>
   </body>
 </html>

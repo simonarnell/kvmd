@@ -58,6 +58,16 @@ class OidcError(Exception):
     pass
 
 
+# The error codes an IdP returns specifically (and only, per the OIDC Core
+# spec, section 3.1.2.6) in response to a prompt=none request it can't
+# satisfy without showing the user something -- never in response to an
+# ordinary interactive request, which gets an interactive page instead of an
+# error. A caller distinguishing "no existing session" (expected, not a
+# problem) from a real OIDC error checks against this set, not a single
+# hardcoded string.
+SILENT_AUTH_REQUIRED_ERRORS = frozenset(["login_required", "interaction_required", "consent_required", "account_selection_required"])
+
+
 def _peek_jwt_header(token: str) -> dict:
     # Decodes the JWT header WITHOUT verifying the signature -- for logging
     # only (which kid/alg did the IdP actually use), never for a trust
@@ -164,7 +174,7 @@ class OidcManager:  # pylint: disable=too-many-instance-attributes
 
     # =====
 
-    def build_authorize_url(self, redirect: str) -> str:
+    def build_authorize_url(self, redirect: str, silent: bool = False) -> str:
         assert self.__enabled
         self.__sweep_pending()
 
@@ -192,10 +202,23 @@ class OidcManager:  # pylint: disable=too-many-instance-attributes
             "code_challenge": code_challenge,
             "code_challenge_method": "S256",
         }
+        if silent:
+            # Ask the IdP to respond immediately, with no interactive page at
+            # all: a code if the browser already has a session there, or one
+            # of a small fixed set of error codes (login_required and
+            # friends, see SILENT_AUTH_REQUIRED_ERRORS) if it doesn't.
+            # Callers use this for a walk-up-already-signed-in check (see
+            # OidcApi.__login_handler's silent param) -- never for the
+            # button-click flow, which must stay able to show an interactive
+            # login page.
+            params["prompt"] = "none"
         url = f"{self.__authorize_endpoint}?{urllib.parse.urlencode(params)}"
         # code_verifier is deliberately omitted: it's the one secret in this
         # flow that never leaves kvmd, so it never goes in a log either.
-        get_logger(0).debug("oidc: built authorize URL for redirect=%r state=%r: %s", redirect, state, url)
+        get_logger(0).debug(
+            "oidc: built authorize URL for redirect=%r state=%r silent=%r: %s",
+            redirect, state, silent, url,
+        )
         return url
 
     def __sweep_pending(self) -> None:

@@ -36,6 +36,7 @@ from urllib.parse import urlparse
 from urllib.parse import parse_qs
 
 from aiohttp import web
+from aiohttp.web import HTTPFound
 from aiohttp.test_utils import make_mocked_request
 
 import pytest
@@ -172,6 +173,22 @@ async def test_ok__happy_path(aiohttp_server: Any) -> None:
 
 
 @pytest.mark.asyncio
+async def test_ok__silent_true_adds_prompt_none(aiohttp_server: Any) -> None:
+    async with _manager(aiohttp_server) as (mgr, _nonces, _overrides):
+        url = mgr.build_authorize_url(redirect="/kvm", silent=True)
+        assert "prompt=none" in url
+
+
+@pytest.mark.asyncio
+async def test_ok__silent_default_false_omits_prompt(aiohttp_server: Any) -> None:
+    async with _manager(aiohttp_server) as (mgr, _nonces, _overrides):
+        url = mgr.build_authorize_url(redirect="/kvm")
+        assert "prompt=" not in url
+        url = mgr.build_authorize_url(redirect="/kvm", silent=False)
+        assert "prompt=" not in url
+
+
+@pytest.mark.asyncio
 async def test_ok__debug_tracing_covers_the_kid_diagnostic(aiohttp_server: Any, caplog: Any) -> None:
     # The single highest-value debug trace: kid mismatches between the
     # id_token and the cached JWKS are the most common real-world OIDC
@@ -304,6 +321,85 @@ async def test_fail__idp_error_param_is_logged(caplog: Any) -> None:
     with pytest.raises(ForbiddenError):
         await handler(req)
     assert any("invalid_scope" in rec.message for rec in caplog.records)
+
+
+# =====
+# The silent (prompt=none) walk-up check: the IdP's own fixed set of "no
+# existing session" error codes must land the browser back on /login/ (a
+# real page the hidden iframe in login/main.js's __trySilentOidc() can
+# detect), never the bare 403 an interactive-flow error gets -- that 403
+# would have nothing to show the user (the error response has no iframe
+# listener looking at its status code) and no interactive page to fall
+# back to that a real error doesn't already have.
+# =====
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("error", ["login_required", "interaction_required", "consent_required", "account_selection_required"])
+async def test_ok__silent_auth_required_error_redirects_to_login(error: str, caplog: Any) -> None:
+    # The redirect happens at debug level, not error (see the comment in
+    # __callback_handler: this is the expected/common case, not a problem),
+    # so caplog needs its level raised to see it -- same reason
+    # test_ok__debug_tracing_covers_the_kid_diagnostic does this for oidc.py.
+    caplog.set_level(logging.DEBUG, logger="kvmd.apps.kvmd.api.oidc")
+
+    api = OidcApi(oidc=_FakeOidcManagerEnabled(), auth=None, allow_redirects=[])  # type: ignore[arg-type]
+    handler = api._OidcApi__callback_handler  # type: ignore[attr-defined]  # pylint: disable=protected-access
+
+    req = make_mocked_request("GET", f"/auth/oidc/callback?error={error}")
+    with pytest.raises(HTTPFound) as exc_info:
+        await handler(req)
+    assert exc_info.value.location == "/login/"
+    assert any(error in rec.message for rec in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_fail__a_real_error_is_still_forbidden_not_redirected() -> None:
+    # Confirms the new silent-error branch doesn't accidentally widen to
+    # swallow genuine errors too -- same assertion as
+    # test_fail__idp_error_param_is_logged, kept here as the direct
+    # counterpart of the parametrized test above.
+    api = OidcApi(oidc=_FakeOidcManagerEnabled(), auth=None, allow_redirects=[])  # type: ignore[arg-type]
+    handler = api._OidcApi__callback_handler  # type: ignore[attr-defined]  # pylint: disable=protected-access
+
+    req = make_mocked_request("GET", "/auth/oidc/callback?error=access_denied")
+    with pytest.raises(ForbiddenError):
+        await handler(req)
+
+
+class _FakeOidcManagerCapturingAuthorizeUrl:
+    def __init__(self) -> None:
+        self.silent: (bool | None) = None
+
+    def is_oidc_enabled(self) -> bool:
+        return True
+
+    def build_authorize_url(self, redirect: str, silent: bool = False) -> str:
+        self.silent = silent
+        return f"http://idp.example/authorize?redirect={redirect}&silent={silent}"
+
+
+@pytest.mark.asyncio
+async def test_ok__login_handler_silent_param_passes_through() -> None:
+    oidc = _FakeOidcManagerCapturingAuthorizeUrl()
+    api = OidcApi(oidc=oidc, auth=None, allow_redirects=[])  # type: ignore[arg-type]
+    handler = api._OidcApi__login_handler  # type: ignore[attr-defined]  # pylint: disable=protected-access
+
+    req = make_mocked_request("GET", "/auth/oidc/login?silent=1")
+    with pytest.raises(HTTPFound):
+        await handler(req)
+    assert oidc.silent is True
+
+
+@pytest.mark.asyncio
+async def test_ok__login_handler_silent_defaults_false() -> None:
+    oidc = _FakeOidcManagerCapturingAuthorizeUrl()
+    api = OidcApi(oidc=oidc, auth=None, allow_redirects=[])  # type: ignore[arg-type]
+    handler = api._OidcApi__login_handler  # type: ignore[attr-defined]  # pylint: disable=protected-access
+
+    req = make_mocked_request("GET", "/auth/oidc/login")
+    with pytest.raises(HTTPFound):
+        await handler(req)
+    assert oidc.silent is False
 
 
 @pytest.mark.asyncio

@@ -31,10 +31,12 @@ from ....htserver import exposed_http
 from ....htserver import make_json_response
 
 from ....validators import check_string_in_list
+from ....validators.basic import valid_bool
 
 from ..auth import AuthManager
 from ..oidc import OidcManager
 from ..oidc import OidcError
+from ..oidc import SILENT_AUTH_REQUIRED_ERRORS
 
 from .auth import _COOKIE_AUTH_TOKEN
 
@@ -61,7 +63,12 @@ class OidcApi:
             name="login redirect",
             variants=self.__allow_redirects,
         )
-        url = self.__oidc.build_authorize_url(redirect)
+        # silent=1: a walk-up-already-signed-in check (see login/main.js's
+        # __trySilentOidc(), which drives this through a hidden iframe), not
+        # the user clicking "Sign in with SSO" -- the IdP must not show that
+        # user anything interactive, just say yes or no immediately.
+        silent = valid_bool(req.query.get("silent", False))
+        url = self.__oidc.build_authorize_url(redirect, silent=silent)
         raise HTTPFound(location=url)
 
     @exposed_http("GET", "/auth/oidc/callback", auth_required=False, allow_usc=False)
@@ -70,6 +77,16 @@ class OidcApi:
             raise ForbiddenError()
 
         idp_error = req.query.get("error")
+        if idp_error in SILENT_AUTH_REQUIRED_ERRORS:
+            # Expected, not a problem: the hidden silent-check iframe asked
+            # the IdP to respond with no interactive page, and the IdP is
+            # saying there's no existing session to use -- the normal case
+            # for a user who hasn't signed in anywhere yet. Land back on
+            # /login/ (a real page load, not another silent attempt) so
+            # __trySilentOidc() sees "still here" as the signal to do
+            # nothing and leave the ordinary login form showing.
+            get_logger(0).debug("oidc: silent auth check found no existing session: error=%r", idp_error)
+            raise HTTPFound(location="/login/")
         if idp_error:
             get_logger(0).error(
                 "oidc: IdP returned an error on callback: error=%r description=%r",

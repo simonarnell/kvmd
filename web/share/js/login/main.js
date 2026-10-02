@@ -26,6 +26,7 @@
 import {tools, $} from "../tools.js";
 import {checkBrowser} from "../bb.js";
 import {wm, initWindowManager} from "../wm.js";
+import {ROOT_PREFIX} from "../vars.js";
 
 
 export function main() {
@@ -57,6 +58,7 @@ export function main() {
 				if (enabled) {
 					$("login-oidc-row").hidden = false;
 					$("login-oidc-row-2").hidden = false;
+					__trySilentOidc();
 				}
 			}
 		});
@@ -67,6 +69,31 @@ export function main() {
 
 function __loginOidc() {
 	tools.currentOpen("api/auth/oidc/login");
+}
+
+function __trySilentOidc() {
+	// A walk-up-already-signed-in check: ask the IdP for an existing session
+	// with no interactive page, via a hidden iframe so this page's own login
+	// form stays the visible default the whole time. kvmd's callback sends a
+	// failed check back to /login/ (see OidcApi.__callback_handler) -- a real
+	// page load, same origin as this one, so its resulting location is
+	// readable directly once the iframe's done, no postMessage needed. If
+	// it's anywhere else, the check succeeded and the session cookie is
+	// already set: follow it with a real top-level navigation, the same one
+	// a successful __loginOidc() click would end up at.
+	let iframe = $("login-oidc-silent");
+	iframe.onload = function() {
+		let dest;
+		try {
+			dest = iframe.contentWindow.location.href;
+		} catch {
+			return; // Cross-origin somehow -- not expected same-origin, just leave the login form showing.
+		}
+		if (!dest.endsWith("/login/")) {
+			window.location.href = dest; // Already a fully resolved URL -- no ROOT_PREFIX to add back.
+		}
+	};
+	iframe.src = `${ROOT_PREFIX}api/auth/oidc/login?silent=1`;
 }
 
 function __login() {
